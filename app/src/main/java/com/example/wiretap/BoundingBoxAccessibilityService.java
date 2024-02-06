@@ -15,21 +15,18 @@ public class BoundingBoxAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo rootNode = getRootInActiveWindow();
         BoundingBoxOverlayView overlayView = new BoundingBoxOverlayView(this);
 
-        Log.d("AccessibilityTest", "we made it");
-
         if (rootNode != null) {
-            // Find all clickable elements
+            Log.d("SuccessRootNode", "we've got one!");
             List<AccessibilityNodeInfo> clickableNodes = rootNode.findAccessibilityNodeInfosByViewId("android:id/list");
             for (AccessibilityNodeInfo node : clickableNodes) {
                 if (node.isClickable()) {
                     Rect bounds = new Rect();
                     node.getBoundsInScreen(bounds);
-
-                    // Here you would handle drawing an overlay around the bounds
-                    // You will need to implement an overlay view that can draw these bounds
                     overlayView.addBoundingBox(bounds);
                 }
             }
+        } else {
+            Log.e("ErrorRootNode", "no root node");
         }
     }
 
@@ -40,12 +37,10 @@ public class BoundingBoxAccessibilityService extends AccessibilityService {
 
     @Override
     protected void onServiceConnected() {
-        // Configure your accessibility service here
-        Log.d("AccessibilityTest", "onServiceConnected: it's done");
         AccessibilityServiceInfo info = new AccessibilityServiceInfo();
         info.flags = AccessibilityServiceInfo.DEFAULT;
         info.eventTypes = AccessibilityEvent.TYPE_VIEW_CLICKED |
-                AccessibilityEvent.TYPE_VIEW_FOCUSED;
+                AccessibilityEvent.TYPE_VIEW_FOCUSED | AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_VISUAL;
         setServiceInfo(info);
     }

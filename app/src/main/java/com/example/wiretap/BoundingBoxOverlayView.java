@@ -27,9 +27,9 @@ public class BoundingBoxOverlayView extends View {
 
     private void init() {
         boxPaint = new Paint();
-        boxPaint.setColor(0xFFFF0000); // Set the bounding box color to red
+        boxPaint.setColor(0xFFFF0000);
         boxPaint.setStyle(Paint.Style.STROKE);
-        boxPaint.setStrokeWidth(5); // Set the stroke width
+        boxPaint.setStrokeWidth(5);
 
         textPaint = new Paint();
         textPaint.setColor(0xFFFFFFFF);
@@ -37,30 +37,29 @@ public class BoundingBoxOverlayView extends View {
         textPaint.setTextAlign(Paint.Align.LEFT);
 
         textBackgroundPaint = new Paint();
-        textBackgroundPaint.setColor(0xFFFF0000); // Black color for the text background
+        textBackgroundPaint.setColor(0xFFFF0000);
         textBackgroundPaint.setStyle(Paint.Style.FILL);
     }
 
     private void setupLayoutParams() {
-        // Define the layout parameters for the overlay
         params = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE, // Make overlay non-interactive
-                PixelFormat.TRANSLUCENT); // Ensure the overlay is translucent
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.TOP | Gravity.START;
     }
 
     public void addBoundingBox(Rect boundingBox) {
         Log.d("BoundingBoxTest", "addBoundingBox: " + boundingBox);
         boundingBoxes.add(boundingBox);
-        invalidate(); // Invalidate to trigger a redraw
+        invalidate();
     }
 
     public void clearBoundingBoxes() {
         boundingBoxes.clear();
-        invalidate(); // Invalidate to trigger a redraw
+        invalidate();
     }
 
     @Override
@@ -69,22 +68,18 @@ public class BoundingBoxOverlayView extends View {
         for (int i = 0; i < boundingBoxes.size(); i++) {
             Rect rect = boundingBoxes.get(i);
             canvas.drawRect(rect, boxPaint);
-            String annotationText = "A" + (i + 1); // "A1", "A2", etc.
+            String annotationText = "A" + (i + 1);
 
-            // Measure the text to place the background appropriately
             float textWidth = textPaint.measureText(annotationText);
             float textHeight = textPaint.getTextSize();
 
-            // Calculate the background rectangle's coordinates
             float backgroundLeft = rect.left;
             float backgroundTop = rect.top - textHeight;
             float backgroundRight = rect.left + textWidth;
             float backgroundBottom = rect.top;
 
-            // Draw the background rectangle
             canvas.drawRect(backgroundLeft, backgroundTop, backgroundRight, backgroundBottom, textBackgroundPaint);
 
-            // Draw the annotation text on top of the background
             canvas.drawText(annotationText, rect.left, rect.top, textPaint);
         }
     }
