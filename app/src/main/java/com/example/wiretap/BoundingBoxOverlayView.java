@@ -3,11 +3,8 @@ package com.example.wiretap;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.util.Log;
-import android.view.Gravity;
-import android.view.WindowManager;
 import android.view.View;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,8 +14,6 @@ public class BoundingBoxOverlayView extends View {
     private Paint boxPaint;
     private Paint textPaint;
     private Paint textBackgroundPaint;
-    private WindowManager windowManager;
-    private WindowManager.LayoutParams params;
 
     public BoundingBoxOverlayView(Context context) {
         super(context);
@@ -41,23 +36,13 @@ public class BoundingBoxOverlayView extends View {
         textBackgroundPaint.setStyle(Paint.Style.FILL);
     }
 
-    private void setupLayoutParams() {
-        params = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-                PixelFormat.TRANSLUCENT);
-        params.gravity = Gravity.TOP | Gravity.START;
-    }
-
     public void addBoundingBox(Rect boundingBox) {
         Log.d("BoundingBoxTest", "addBoundingBox: " + boundingBox);
         boundingBoxes.add(boundingBox);
         invalidate();
     }
 
-    public void clearBoundingBoxes() {
+    public void clearDrawings() {
         boundingBoxes.clear();
         invalidate();
     }
@@ -82,10 +67,6 @@ public class BoundingBoxOverlayView extends View {
 
             canvas.drawText(annotationText, rect.left, rect.top, textPaint);
         }
-    }
-
-    public void removeOverlay() {
-        windowManager.removeView(this);
     }
 }
 

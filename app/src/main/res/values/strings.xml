@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">Project Wiretap</string>
-    <string name="service_description">This service will draw bounding boxes around interactive elements.</string>
+    <string name="accessibility_service_label">Project Wiretap</string>
+    <string name="accessibility_service_description">This service will draw bounding boxes around interactive elements.</string>
 </resources>
