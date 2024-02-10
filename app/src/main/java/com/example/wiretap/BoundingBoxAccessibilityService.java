@@ -9,12 +9,28 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.util.Log;
 
+import java.util.LinkedHashMap;
+
 public class BoundingBoxAccessibilityService extends AccessibilityService {
     private WindowManager windowManager;
     private WindowManager.LayoutParams params;
     private BoundingBoxOverlayView overlayView;
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
+        int eventType = event.getEventType();
+        String eventText = "";
+        switch (eventType) {
+            case AccessibilityEvent.TYPE_VIEW_CLICKED:
+                eventText = "click";
+                if (event.getSource() != null) {
+                    Integer nodeIndex = indexOfKeyInLinkedHashMap(overlayView.boundingBoxes, event.getSource().hashCode());
+                    Log.d("test", "test: " + nodeIndex);
+                }
+                break;
+            default:
+                eventText = "other";
+        }
+
         overlayView.clearDrawings();
         AccessibilityNodeInfo rootNode = getRootInActiveWindow();
 
@@ -23,6 +39,17 @@ public class BoundingBoxAccessibilityService extends AccessibilityService {
         } else {
             Log.e("ErrorRootNode", "no root node");
         }
+    }
+
+    private int indexOfKeyInLinkedHashMap(LinkedHashMap<Integer, Rect> map, Integer keyToFind) {
+        int index = 0;
+        for (Integer key : map.keySet()) {
+            if (key.equals(keyToFind)) {
+                return index;
+            }
+            index++;
+        }
+        return -1;
     }
 
     private void findClickableNodes(AccessibilityNodeInfo node) {
@@ -36,7 +63,7 @@ public class BoundingBoxAccessibilityService extends AccessibilityService {
             bounds.top -= statusBarHeight;
             bounds.bottom -= statusBarHeight;
 
-            overlayView.addBoundingBox(bounds);
+            overlayView.addBoundingBox(node.hashCode(), bounds);
         }
 
         for (int i = 0; i < node.getChildCount(); i++) {
