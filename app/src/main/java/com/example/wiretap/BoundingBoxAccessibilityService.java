@@ -8,7 +8,6 @@ import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.util.Log;
-
 import java.util.LinkedHashMap;
 
 public class BoundingBoxAccessibilityService extends AccessibilityService {
@@ -18,17 +17,20 @@ public class BoundingBoxAccessibilityService extends AccessibilityService {
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         int eventType = event.getEventType();
-        String eventText = "";
-        switch (eventType) {
-            case AccessibilityEvent.TYPE_VIEW_CLICKED:
-                eventText = "click";
-                if (event.getSource() != null) {
-                    Integer nodeIndex = indexOfKeyInLinkedHashMap(overlayView.boundingBoxes, event.getSource().hashCode());
-                    Log.d("test", "test: " + nodeIndex);
-                }
-                break;
-            default:
-                eventText = "other";
+        if (event.getSource() != null) {
+            Integer nodeIndex = indexOfKeyInLinkedHashMap(overlayView.boundingBoxes, event.getSource().hashCode());
+            switch (eventType) {
+                case AccessibilityEvent.TYPE_VIEW_CLICKED:
+                    Log.d("Click", "Clicked: " + nodeIndex);
+                    overlayView.submitAction();
+                    break;
+                case AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED:
+                    CharSequence newText = event.getText().toString();
+                    Log.d("Type", "Typed: " + newText + " into box " + nodeIndex);
+                    break;
+                default:
+                    break;
+            }
         }
 
         overlayView.clearDrawings();
@@ -41,7 +43,7 @@ public class BoundingBoxAccessibilityService extends AccessibilityService {
         }
     }
 
-    private int indexOfKeyInLinkedHashMap(LinkedHashMap<Integer, Rect> map, Integer keyToFind) {
+    private int indexOfKeyInLinkedHashMap(LinkedHashMap<Integer, DisplayableRect> map, Integer keyToFind) {
         int index = 0;
         for (Integer key : map.keySet()) {
             if (key.equals(keyToFind)) {
@@ -63,7 +65,7 @@ public class BoundingBoxAccessibilityService extends AccessibilityService {
             bounds.top -= statusBarHeight;
             bounds.bottom -= statusBarHeight;
 
-            overlayView.addBoundingBox(node.hashCode(), bounds);
+            overlayView.addBoundingBox(node.hashCode(), new DisplayableRect(bounds, true));
         }
 
         for (int i = 0; i < node.getChildCount(); i++) {

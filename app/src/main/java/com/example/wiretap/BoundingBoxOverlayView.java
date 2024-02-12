@@ -4,17 +4,11 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
-import android.util.Log;
 import android.view.View;
-
-import java.lang.reflect.Array;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.LinkedHashMap;
 
 public class BoundingBoxOverlayView extends View {
-    public LinkedHashMap<Integer, Rect> boundingBoxes = new LinkedHashMap<>();
+    public LinkedHashMap<Integer, DisplayableRect> boundingBoxes = new LinkedHashMap<>();
 
     private Paint boxPaint;
     private Paint textPaint;
@@ -41,12 +35,19 @@ public class BoundingBoxOverlayView extends View {
         textBackgroundPaint.setStyle(Paint.Style.FILL);
     }
 
-    public void addBoundingBox(Integer viewId, Rect boundingBox) {
+    public void addBoundingBox(Integer viewId, DisplayableRect boundingBox) {
         boundingBoxes.put(viewId, boundingBox);
         invalidate();
     }
 
     public void clearDrawings() {
+        for (DisplayableRect rect : boundingBoxes.values()) {
+            rect.shouldDisplay = false;
+        }
+        invalidate();
+    }
+
+    public void submitAction() {
         boundingBoxes.clear();
         invalidate();
     }
@@ -54,23 +55,26 @@ public class BoundingBoxOverlayView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        Rect[] rectsArray = boundingBoxes.values().toArray(new Rect[0]);
+        DisplayableRect[] rectsArray = boundingBoxes.values().toArray(new DisplayableRect[0]);
         for (int i = 0; i < rectsArray.length; i++) {
-            Rect rect = rectsArray[i];
-            canvas.drawRect(rect, boxPaint);
-            String annotationText = String.valueOf(i);
+            DisplayableRect displayObject = rectsArray[i];
+            if (displayObject.shouldDisplay) {
+                Rect rect = displayObject.rect;
+                canvas.drawRect(rect, boxPaint);
+                String annotationText = String.valueOf(i);
 
-            float textWidth = textPaint.measureText(annotationText);
-            float textHeight = textPaint.getTextSize();
+                float textWidth = textPaint.measureText(annotationText);
+                float textHeight = textPaint.getTextSize();
 
-            float backgroundLeft = rect.left;
-            float backgroundTop = rect.top - textHeight;
-            float backgroundRight = rect.left + textWidth;
-            float backgroundBottom = rect.top;
+                float backgroundLeft = rect.left;
+                float backgroundTop = rect.top - textHeight;
+                float backgroundRight = rect.left + textWidth;
+                float backgroundBottom = rect.top;
 
-            canvas.drawRect(backgroundLeft, backgroundTop, backgroundRight, backgroundBottom, textBackgroundPaint);
+                canvas.drawRect(backgroundLeft, backgroundTop, backgroundRight, backgroundBottom, textBackgroundPaint);
 
-            canvas.drawText(annotationText, rect.left, rect.top, textPaint);
+                canvas.drawText(annotationText, rect.left, rect.top, textPaint);
+            }
         }
     }
 }
