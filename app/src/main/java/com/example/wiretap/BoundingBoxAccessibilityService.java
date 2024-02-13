@@ -4,10 +4,8 @@ import android.accessibilityservice.AccessibilityService;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
-import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.view.Gravity;
 import android.view.WindowManager;
@@ -31,7 +29,6 @@ public class BoundingBoxAccessibilityService extends AccessibilityService {
         if (event.getSource() != null && captureIntent != null) {
             overlayView.captureScreen(captureIntent);
             Integer nodeIndex = indexOfKeyInLinkedHashMap(overlayView.boundingBoxes, event.getSource().hashCode());
-            Log.d("CaptureIntent", "captureIntent: " + captureIntent);
             switch (eventType) {
                 case AccessibilityEvent.TYPE_VIEW_CLICKED:
                     Log.d("Click", "Clicked: " + nodeIndex);

@@ -5,7 +5,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.graphics.ImageFormat;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
@@ -15,6 +14,8 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Surface;
@@ -83,28 +84,44 @@ public class BoundingBoxOverlayView extends View {
             int width = metrics.widthPixels;
             int height = metrics.heightPixels;
 
-            ImageReader imageReader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 1);
+            ImageReader imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
             Surface surface = imageReader.getSurface();
 
-            VirtualDisplay virtualDisplay = mediaProjection.createVirtualDisplay(
+            final VirtualDisplay virtualDisplay = mediaProjection.createVirtualDisplay(
                     "ScreenCapture",
                     width, height, density,
                     flags, surface, null, null
             );
 
-            Image image = imageReader.acquireLatestImage();
-            if (image != null) {
-               Image.Plane[] planes = image.getPlanes();
-                ByteBuffer buffer = planes[0].getBuffer();
-                Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-                bitmap.copyPixelsFromBuffer(buffer);
+            imageReader.setOnImageAvailableListener(reader -> {
+                Image image = null;
+                try {
+                    image = reader.acquireLatestImage();
+                    if (image != null) {
+                        Image.Plane[] planes = image.getPlanes();
+                        ByteBuffer buffer = planes[0].getBuffer();
+                        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                        bitmap.copyPixelsFromBuffer(buffer);
 
-                ByteArrayOutputStream stream = new ByteArrayOutputStream();
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream);
-                byte[] byteArray = stream.toByteArray();
-                Log.d("Image", "captureScreen: " + byteArray);
-                image.close();
-            }
+                        ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream);
+                        byte[] byteArray = stream.toByteArray();
+                        Log.d("Image", "captureScreen: " + byteArray);
+                    }
+                } finally {
+                    if (image != null) {
+                        image.close();
+                    }
+
+                    if (virtualDisplay != null) {
+                        virtualDisplay.release();
+                    }
+
+                    if (imageReader != null) {
+                        imageReader.close();
+                    }
+                }
+            }, new Handler(Looper.getMainLooper()));
         }
     }
 
