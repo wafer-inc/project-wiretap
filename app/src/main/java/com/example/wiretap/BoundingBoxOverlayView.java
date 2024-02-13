@@ -1,10 +1,27 @@
 package com.example.wiretap;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.ImageFormat;
 import android.graphics.Paint;
+import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
+import android.media.Image;
+import android.media.ImageReader;
+import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
+import android.util.DisplayMetrics;
+import android.util.Log;
+import android.view.Surface;
 import android.view.View;
+
+import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
 import java.util.LinkedHashMap;
 
 public class BoundingBoxOverlayView extends View {
@@ -13,9 +30,11 @@ public class BoundingBoxOverlayView extends View {
     private Paint boxPaint;
     private Paint textPaint;
     private Paint textBackgroundPaint;
+    private Context mContext;
 
     public BoundingBoxOverlayView(Context context) {
         super(context);
+        mContext = context;
         init();
     }
 
@@ -50,6 +69,43 @@ public class BoundingBoxOverlayView extends View {
     public void submitAction() {
         boundingBoxes.clear();
         invalidate();
+    }
+
+    public void captureScreen(Intent captureIntent) {
+        if (captureIntent != null) {
+            MediaProjectionManager projectionManager = (MediaProjectionManager) mContext.getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+
+            MediaProjection mediaProjection = projectionManager.getMediaProjection(Activity.RESULT_OK, captureIntent);
+
+            DisplayMetrics metrics = getResources().getDisplayMetrics();
+            int density = metrics.densityDpi;
+            int flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR;
+            int width = metrics.widthPixels;
+            int height = metrics.heightPixels;
+
+            ImageReader imageReader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 1);
+            Surface surface = imageReader.getSurface();
+
+            VirtualDisplay virtualDisplay = mediaProjection.createVirtualDisplay(
+                    "ScreenCapture",
+                    width, height, density,
+                    flags, surface, null, null
+            );
+
+            Image image = imageReader.acquireLatestImage();
+            if (image != null) {
+               Image.Plane[] planes = image.getPlanes();
+                ByteBuffer buffer = planes[0].getBuffer();
+                Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                bitmap.copyPixelsFromBuffer(buffer);
+
+                ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream);
+                byte[] byteArray = stream.toByteArray();
+                Log.d("Image", "captureScreen: " + byteArray);
+                image.close();
+            }
+        }
     }
 
     @Override

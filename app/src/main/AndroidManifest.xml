@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <application>
+        <activity android:name=".TransparentActivity"
+            android:theme="@style/Theme.AppCompat.Translucent">
+        </activity>
         <service
             android:name=".BoundingBoxAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:label="@string/accessibility_service_label"
+            android:foregroundServiceType="mediaProjection"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
@@ -15,5 +20,4 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
     </application>
-
 </manifest>
