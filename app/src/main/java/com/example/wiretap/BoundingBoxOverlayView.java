@@ -22,8 +22,19 @@ import android.view.Surface;
 import android.view.View;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.LinkedHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
 
 public class BoundingBoxOverlayView extends View {
     public LinkedHashMap<Integer, DisplayableRect> boundingBoxes = new LinkedHashMap<>();
@@ -73,6 +84,7 @@ public class BoundingBoxOverlayView extends View {
     }
 
     public void captureScreen(Intent captureIntent) {
+        Log.d("CaptureScreen", "This was called");
         if (captureIntent != null) {
             MediaProjectionManager projectionManager = (MediaProjectionManager) mContext.getSystemService(Context.MEDIA_PROJECTION_SERVICE);
 
@@ -93,34 +105,56 @@ public class BoundingBoxOverlayView extends View {
                     flags, surface, null, null
             );
 
+            ExecutorService executorService = Executors.newSingleThreadExecutor();
+
             imageReader.setOnImageAvailableListener(reader -> {
-                Image image = null;
-                try {
-                    image = reader.acquireLatestImage();
-                    if (image != null) {
-                        Image.Plane[] planes = image.getPlanes();
-                        ByteBuffer buffer = planes[0].getBuffer();
-                        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-                        bitmap.copyPixelsFromBuffer(buffer);
+                executorService.execute(() -> {
+                    Image image = null;
+                    try {
+                        image = reader.acquireLatestImage();
+                        if (image != null) {
+                            Image.Plane[] planes = image.getPlanes();
+                            ByteBuffer buffer = planes[0].getBuffer();
+                            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                            bitmap.copyPixelsFromBuffer(buffer);
 
-                        ByteArrayOutputStream stream = new ByteArrayOutputStream();
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream);
-                        byte[] byteArray = stream.toByteArray();
-                        Log.d("Image", "captureScreen: " + byteArray);
-                    }
-                } finally {
-                    if (image != null) {
-                        image.close();
-                    }
+                            ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream);
+                            byte[] byteArray = stream.toByteArray();
 
-                    if (virtualDisplay != null) {
-                        virtualDisplay.release();
-                    }
+                            String url = "http://b9aa-71-198-153-83.ngrok-free.app/generate";
+                            MediaType JSON = MediaType.get("image/jpeg");
 
-                    if (imageReader != null) {
-                        imageReader.close();
+                            OkHttpClient client = new OkHttpClient();
+
+                            RequestBody body = RequestBody.create(byteArray, JSON);
+                            Request request = new Request.Builder()
+                                    .url(url)
+                                    .post(body)
+                                    .build();
+
+                            try (Response response = client.newCall(request).execute()) {
+                                Log.d("HTTPResponse", "response: " + response.body().string());
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+
+                            Log.d("Image", "captureScreen: " + byteArray);
+                        }
+                    } finally {
+                        if (image != null) {
+                            image.close();
+                        }
+
+                        if (virtualDisplay != null) {
+                            virtualDisplay.release();
+                        }
+
+                        if (imageReader != null) {
+                            imageReader.close();
+                        }
                     }
-                }
+                });
             }, new Handler(Looper.getMainLooper()));
         }
     }

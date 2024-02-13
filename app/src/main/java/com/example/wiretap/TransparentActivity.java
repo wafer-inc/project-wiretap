@@ -23,7 +23,6 @@ public class TransparentActivity extends AppCompatActivity {
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
                     boolean permissionGranted = result.getResultCode() == Activity.RESULT_OK;
-                    Log.d("ResultData", "result data: " + String.valueOf(result.getData()));
                     if (permissionGranted) {
                         GlobalIntentHolder.screenCaptureIntent = result.getData();
                     }
