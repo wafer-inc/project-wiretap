@@ -22,22 +22,21 @@ public class BoundingBoxAccessibilityService extends AccessibilityService {
     private WindowManager windowManager;
     private WindowManager.LayoutParams params;
     private BoundingBoxOverlayView overlayView;
+    private String actionText;
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
-        Intent captureIntent = GlobalIntentHolder.screenCaptureIntent;
-        Log.d("CaptureIntent", "onAccessibilityEvent: " + captureIntent);
         int eventType = event.getEventType();
-        if (event.getSource() != null && captureIntent != null) {
+        if (event.getSource() != null) {
             Integer nodeIndex = indexOfKeyInLinkedHashMap(overlayView.boundingBoxes, event.getSource().hashCode());
             switch (eventType) {
                 case AccessibilityEvent.TYPE_VIEW_CLICKED:
-                    Log.d("Click", "Clicked: " + nodeIndex);
-                    overlayView.captureScreen(captureIntent);
-                    overlayView.submitAction();
+                case AccessibilityEvent.TYPE_VIEW_CONTEXT_CLICKED:
+                    actionText = "Clicked: " + nodeIndex;
+                    overlayView.submitAction(actionText);
                     break;
                 case AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED:
                     CharSequence newText = event.getText().toString();
-                    Log.d("Type", "Typed: " + newText + " into box " + nodeIndex);
+                    actionText = "Typed: " + newText + " into box " + nodeIndex;
                     break;
                 default:
                     break;

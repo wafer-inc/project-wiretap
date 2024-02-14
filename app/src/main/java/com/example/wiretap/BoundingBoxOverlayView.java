@@ -16,6 +16,7 @@ import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Surface;
@@ -37,8 +38,8 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 public class BoundingBoxOverlayView extends View {
+    private byte[] byteArray;
     public LinkedHashMap<Integer, DisplayableRect> boundingBoxes = new LinkedHashMap<>();
-
     private Paint boxPaint;
     private Paint textPaint;
     private Paint textBackgroundPaint;
@@ -78,12 +79,17 @@ public class BoundingBoxOverlayView extends View {
         invalidate();
     }
 
-    public void submitAction() {
+    public void submitAction(String actionText) {
+        Log.d("ActionText", actionText);
         boundingBoxes.clear();
+        postImage();
+        captureScreen();
         invalidate();
     }
 
-    public void captureScreen(Intent captureIntent) {
+    public void captureScreen() {
+        Intent captureIntent = GlobalIntentHolder.screenCaptureIntent;
+
         Log.d("CaptureScreen", "This was called");
         if (captureIntent != null) {
             MediaProjectionManager projectionManager = (MediaProjectionManager) mContext.getSystemService(Context.MEDIA_PROJECTION_SERVICE);
@@ -105,60 +111,65 @@ public class BoundingBoxOverlayView extends View {
                     flags, surface, null, null
             );
 
-            ExecutorService executorService = Executors.newSingleThreadExecutor();
-
             imageReader.setOnImageAvailableListener(reader -> {
-                executorService.execute(() -> {
-                    Image image = null;
-                    try {
-                        image = reader.acquireLatestImage();
-                        if (image != null) {
-                            Image.Plane[] planes = image.getPlanes();
-                            ByteBuffer buffer = planes[0].getBuffer();
-                            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-                            bitmap.copyPixelsFromBuffer(buffer);
+                SystemClock.sleep(1000);
+                Image image = null;
+                try {
+                    image = reader.acquireLatestImage();
+                    if (image != null) {
+                        Image.Plane[] planes = image.getPlanes();
+                        ByteBuffer buffer = planes[0].getBuffer();
+                        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                        bitmap.copyPixelsFromBuffer(buffer);
 
-                            ByteArrayOutputStream stream = new ByteArrayOutputStream();
-                            bitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream);
-                            byte[] byteArray = stream.toByteArray();
+                        ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream);
+                        byteArray = stream.toByteArray();
 
-                            String url = "http://b9aa-71-198-153-83.ngrok-free.app/generate";
-                            MediaType JSON = MediaType.get("image/jpeg");
-
-                            OkHttpClient client = new OkHttpClient();
-
-                            RequestBody body = RequestBody.create(byteArray, JSON);
-                            Request request = new Request.Builder()
-                                    .url(url)
-                                    .post(body)
-                                    .build();
-
-                            try (Response response = client.newCall(request).execute()) {
-                                Log.d("HTTPResponse", "response: " + response.body().string());
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-
-                            Log.d("Image", "captureScreen: " + byteArray);
-                        }
-                    } finally {
-                        if (image != null) {
-                            image.close();
-                        }
-
-                        if (virtualDisplay != null) {
-                            virtualDisplay.release();
-                        }
-
-                        if (imageReader != null) {
-                            imageReader.close();
-                        }
+                        Log.d("Image", "captureScreen: " + byteArray);
                     }
-                });
+                } finally {
+                    if (image != null) {
+                        image.close();
+                    }
+
+                    if (virtualDisplay != null) {
+                        virtualDisplay.release();
+                    }
+
+                    if (imageReader != null) {
+                        imageReader.close();
+                    }
+                }
             }, new Handler(Looper.getMainLooper()));
         }
     }
 
+    private void postImage() {
+        if (byteArray != null) {
+            ExecutorService executorService = Executors.newSingleThreadExecutor();
+
+            executorService.execute(() -> {
+                SystemClock.sleep(1000);
+                String url = "http://b9aa-71-198-153-83.ngrok-free.app/generate";
+                MediaType JSON = MediaType.get("image/jpeg");
+
+                OkHttpClient client = new OkHttpClient();
+
+                RequestBody body = RequestBody.create(byteArray, JSON);
+                Request request = new Request.Builder()
+                        .url(url)
+                        .post(body)
+                        .build();
+
+                try (Response response = client.newCall(request).execute()) {
+                    Log.d("HTTPResponse", "response: " + response.body().string());
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+        }
+    }
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
