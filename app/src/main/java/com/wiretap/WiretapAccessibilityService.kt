@@ -7,9 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Rect
+import android.os.Environment
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import kotlinx.coroutines.*
+import java.io.File
 
 class WiretapAccessibilityService : AccessibilityService() {
     private val TAG = "WiretapAccessibility"
@@ -22,6 +24,52 @@ class WiretapAccessibilityService : AccessibilityService() {
     private val TEXT_INPUT_DELAY = 1000L
 
     private val HIERARCHY_CAPTURE_DELAY = 1000L
+
+    private var currentEpisodeDir: File? = null
+    private var currentTreeIndex = 0
+
+    private fun initializeNewEpisode() {
+        // Use getExternalFilesDir which is app-specific but still accessible via ADB
+        val datasetDir = File(getExternalFilesDir(null), "wiretap_dataset")
+        if (!datasetDir.exists()) {
+            datasetDir.mkdirs()
+        }
+
+        // Find the next episode number
+        val episodeNumber = datasetDir.listFiles()?.size ?: 0
+
+        // Create new episode directory
+        currentEpisodeDir = File(datasetDir, "episode_$episodeNumber")
+        currentEpisodeDir?.mkdirs()
+
+        // Reset tree index
+        currentTreeIndex = 0
+
+        Log.d(TAG, "Created new episode directory: ${currentEpisodeDir?.absolutePath}")
+    }
+
+    private fun saveTreeToFile(treeJson: String) {
+        currentEpisodeDir?.let { dir ->
+            val treeFile = File(dir, "accessibility_tree_${currentTreeIndex}.txt")
+            treeFile.writeText(treeJson)
+            currentTreeIndex++
+        }
+    }
+
+    private fun saveMetadata() {
+        currentEpisodeDir?.let { dir ->
+            val metadata = """
+            {
+                "goal": ${currentGoal?.let { "\"$it\"" } ?: "null"},
+                "actions": [
+                    ${recordingActions.joinToString(",\n    ")}
+                ]
+            }
+            """.trimIndent()
+
+            File(dir, "metadata.json").writeText(metadata)
+        }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -55,22 +103,17 @@ class WiretapAccessibilityService : AccessibilityService() {
                     isRecording = true
                     currentGoal = intent.getStringExtra("goal")
                     recordingActions.clear()
+                    initializeNewEpisode()
                     Log.d(TAG, "Started recording for goal: $currentGoal")
                 }
                 "com.wiretap.STOP_RECORDING" -> {
                     isRecording = false
-                    // Save or process the recorded actions
-                    val recording = """
-                    {
-                      "goal": "$currentGoal",
-                      "actions": [
-                        ${recordingActions.joinToString(",\n")}
-                      ]
-                    }
-                    """.trimIndent()
-                    Log.d(TAG, "Recording completed: $recording")
+                    saveMetadata()
+                    Log.d(TAG, "Recording completed and saved to ${currentEpisodeDir?.absolutePath}")
+                    currentEpisodeDir = null
                     currentGoal = null
                     recordingActions.clear()
+                    currentTreeIndex = 0
                 }
             }
         }
@@ -188,10 +231,8 @@ class WiretapAccessibilityService : AccessibilityService() {
 
             else -> null
         }
-
         action?.let { actionJson ->
             try {
-                // Launch a coroutine to handle the delayed capture
                 serviceScope.launch {
                     // Add action to recording immediately
                     recordingActions.add(actionJson)
@@ -199,14 +240,14 @@ class WiretapAccessibilityService : AccessibilityService() {
                     // Wait for screen to update
                     delay(HIERARCHY_CAPTURE_DELAY)
 
-                    // Capture the view hierarchy after delay
+                    // Capture and save the view hierarchy after delay
                     val windows = windows?.toList() ?: emptyList()
                     val forestJson = treeCreator.buildForest(windows)
 
-                    Log.d(TAG, """{
-                        "action": $actionJson,
-                        "tree": $forestJson
-                    }""".trimIndent())
+                    // Save to file
+                    saveTreeToFile(forestJson)
+
+                    Log.d(TAG, "Saved tree ${currentTreeIndex - 1} for episode ${currentEpisodeDir?.name}")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing accessibility tree", e)
