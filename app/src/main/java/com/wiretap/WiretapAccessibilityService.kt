@@ -27,7 +27,7 @@ class WiretapAccessibilityService : AccessibilityService() {
     private var textInputJob: Job? = null
     private val TEXT_INPUT_DELAY = 1000L
 
-    private val HIERARCHY_CAPTURE_DELAY = 1000L
+    private val HIERARCHY_CAPTURE_DELAY = 500L
 
     private var previousPackage: CharSequence? = null
 
