@@ -6,12 +6,16 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
 import android.graphics.Rect
+import android.os.Build
 import android.os.Environment
 import android.util.Log
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import kotlinx.coroutines.*
 import java.io.File
+import java.io.FileOutputStream
 
 class WiretapAccessibilityService : AccessibilityService() {
     private val TAG = "WiretapAccessibility"
@@ -68,6 +72,40 @@ class WiretapAccessibilityService : AccessibilityService() {
             """.trimIndent()
 
             File(dir, "metadata.json").writeText(metadata)
+        }
+    }
+
+    private fun captureScreenshot(episodeDir: File, index: Int) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            takeScreenshot(
+                Display.DEFAULT_DISPLAY,
+                applicationContext.mainExecutor,
+                object : TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: ScreenshotResult) {
+                        val bitmap = Bitmap.wrapHardwareBuffer(
+                            screenshot.hardwareBuffer,
+                            screenshot.colorSpace
+                        )
+
+                        try {
+                            val screenshotFile = File(episodeDir, "screenshot_$index.png")
+                            FileOutputStream(screenshotFile).use { out ->
+                                bitmap?.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            }
+                            Log.d(TAG, "Screenshot saved: ${screenshotFile.absolutePath}")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error saving screenshot", e)
+                        } finally {
+                            bitmap?.recycle()
+                            screenshot.hardwareBuffer.close()
+                        }
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        Log.e(TAG, "Screenshot failed with error code: $errorCode")
+                    }
+                }
+            )
         }
     }
 
@@ -234,23 +272,20 @@ class WiretapAccessibilityService : AccessibilityService() {
         action?.let { actionJson ->
             try {
                 serviceScope.launch {
-                    // Add action to recording immediately
                     recordingActions.add(actionJson)
-
-                    // Wait for screen to update
                     delay(HIERARCHY_CAPTURE_DELAY)
 
-                    // Capture and save the view hierarchy after delay
+                    // Capture both tree and screenshot
                     val windows = windows?.toList() ?: emptyList()
                     val forestJson = treeCreator.buildForest(windows)
-
-                    // Save to file
                     saveTreeToFile(forestJson)
 
-                    Log.d(TAG, "Saved tree ${currentTreeIndex - 1} for episode ${currentEpisodeDir?.name}")
+                    currentEpisodeDir?.let { dir ->
+                        captureScreenshot(dir, currentTreeIndex - 1)
+                    }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error processing accessibility tree", e)
+                Log.e(TAG, "Error processing event", e)
             }
         }
     }
@@ -264,5 +299,11 @@ class WiretapAccessibilityService : AccessibilityService() {
         super.onDestroy()
         serviceScope.cancel()
     }
-
+    
+    private fun isSystemPackage(packageName: String): Boolean {
+        return packageName.matches(Regex("com\\.android.*")) ||  // Android system apps
+                packageName.contains("launcher", ignoreCase = true) ||  // Launchers
+                packageName == "android" ||  // Android system
+                packageName == applicationContext.packageName  // Our own app
+    }
 }
