@@ -174,127 +174,143 @@ class WiretapAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (!isRecording) return
 
-        val action = when (event.eventType) {
-            // Click events
-            AccessibilityEvent.TYPE_VIEW_CLICKED -> {
-                val sourceNode = event.source
-                sourceNode?.let { node ->
-                    val rect = Rect()
-                    node.getBoundsInScreen(rect)
-                    // Using center point of the bounds for x,y coordinates
-                    val x = (rect.left + rect.right) / 2
-                    val y = (rect.top + rect.bottom) / 2
-                    """
-                   {
-                     "action_type": "click",
-                     "x": $x,
-                     "y": $y
-                   }
-                   """.trimIndent()
-                }
-            }
-
-            // Text input events
+        when (event.eventType) {
+            // Text input events - handle separately with debounce
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
                 val text = event.text?.joinToString("") ?: ""
-                // Cancel any pending text input job
+                Log.d(TAG, "Typed: $text")
                 textInputJob?.cancel()
-                // Create new debounced job
                 textInputJob = serviceScope.launch {
                     delay(TEXT_INPUT_DELAY)  // Wait for 1 second of no typing
-                    """
-                    {
-                      "action_type": "input_text",
-                      "text": "$text"
-                    }
-                    """.trimIndent()
-                }
-                null  // Return null for now, actual JSON will be processed after delay
-            }
 
-            // Navigation and app launch events
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                when {
-                    // Check if it's an app launch
-                    event.packageName != null &&
-                            event.className != null &&
-                            !event.packageName.toString().contains("launcher") && // not the launcher itself
-                            event.className.toString().endsWith("Activity") && // it's an Activity
-                            // You might want to track the previous package to only log when it changes
-                            previousPackage != event.packageName -> {
+                    val textInputJson = """
+               {
+                 "action_type": "input_text",
+                 "text": "$text"
+               }
+               """.trimIndent()
 
-                        previousPackage = event.packageName
-                        val appName = event.packageName.toString().substringAfterLast(".")
-                        """
-                        {
-                          "action_type": "open_app",
-                          "app_name": "$appName"
+                    try {
+                        recordingActions.add(textInputJson)
+                        delay(HIERARCHY_CAPTURE_DELAY)
+
+                        val windows = windows?.toList() ?: emptyList()
+                        val forestJson = treeCreator.buildForest(windows)
+                        saveTreeToFile(forestJson)
+
+                        currentEpisodeDir?.let { dir ->
+                            captureScreenshot(dir, currentTreeIndex - 1)
                         }
-                        """.trimIndent()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error processing text input event", e)
                     }
-                    // Check if it's a back navigation
-                    event.contentDescription?.contains("back") == true ||
-                            event.className?.contains("back") == true -> {
-                        """
+                }
+                return  // Return early for text events
+            }
+
+            // All other events - handle immediately
+            else -> {
+                val action = when (event.eventType) {
+                    // Click events
+                    AccessibilityEvent.TYPE_VIEW_CLICKED -> {
+                        val sourceNode = event.source
+                        sourceNode?.let { node ->
+                            val rect = Rect()
+                            node.getBoundsInScreen(rect)
+                            val x = (rect.left + rect.right) / 2
+                            val y = (rect.top + rect.bottom) / 2
+                            """
                        {
-                         "action_type": "navigate_back"
+                         "action_type": "click",
+                         "x": $x,
+                         "y": $y
                        }
                        """.trimIndent()
+                        }
+                    }
+
+                    // Navigation and app launch events
+                    AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                        when {
+                            // App launch
+                            event.packageName != null &&
+                                    event.className != null &&
+                                    !event.packageName.toString().contains("launcher") &&
+                                    event.className.toString().endsWith("Activity") &&
+                                    previousPackage != event.packageName -> {
+                                previousPackage = event.packageName
+                                val appName = event.packageName.toString().substringAfterLast(".")
+                                """
+                           {
+                             "action_type": "open_app",
+                             "app_name": "$appName"
+                           }
+                           """.trimIndent()
+                            }
+                            // Back navigation
+                            event.contentDescription?.contains("back") == true ||
+                                    event.className?.contains("back") == true -> {
+                                """
+                           {
+                             "action_type": "navigate_back"
+                           }
+                           """.trimIndent()
+                            }
+                            else -> null
+                        }
+                    }
+
+                    // Scroll events
+                    AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                        when {
+                            event.scrollDeltaY < 0 -> """
+                           {
+                             "action_type": "scroll",
+                             "direction": "up"
+                           }
+                           """.trimIndent()
+                            event.scrollDeltaY > 0 -> """
+                           {
+                             "action_type": "scroll",
+                             "direction": "down"
+                           }
+                           """.trimIndent()
+                            event.scrollDeltaX < 0 -> """
+                           {
+                             "action_type": "scroll",
+                             "direction": "left"
+                           }
+                           """.trimIndent()
+                            event.scrollDeltaX > 0 -> """
+                           {
+                             "action_type": "scroll",
+                             "direction": "right"
+                           }
+                           """.trimIndent()
+                            else -> null
+                        }
                     }
                     else -> null
                 }
-            }
 
-            // Scroll events
-            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                when {
-                    event.scrollDeltaY < 0 -> """
-                       {
-                         "action_type": "scroll",
-                         "direction": "up"
-                       }
-                       """.trimIndent()
-                    event.scrollDeltaY > 0 -> """
-                       {
-                         "action_type": "scroll",
-                         "direction": "down"
-                       }
-                       """.trimIndent()
-                    event.scrollDeltaX < 0 -> """
-                       {
-                         "action_type": "scroll",
-                         "direction": "left"
-                       }
-                       """.trimIndent()
-                    event.scrollDeltaX > 0 -> """
-                       {
-                         "action_type": "scroll",
-                         "direction": "right"
-                       }
-                       """.trimIndent()
-                    else -> null
-                }
-            }
+                action?.let { actionJson ->
+                    try {
+                        serviceScope.launch {
+                            recordingActions.add(actionJson)
+                            delay(HIERARCHY_CAPTURE_DELAY)
 
-            else -> null
-        }
-        action?.let { actionJson ->
-            try {
-                serviceScope.launch {
-                    recordingActions.add(actionJson)
-                    delay(HIERARCHY_CAPTURE_DELAY)
+                            val windows = windows?.toList() ?: emptyList()
+                            val forestJson = treeCreator.buildForest(windows)
+                            saveTreeToFile(forestJson)
 
-                    // Capture both tree and screenshot
-                    val windows = windows?.toList() ?: emptyList()
-                    val forestJson = treeCreator.buildForest(windows)
-                    saveTreeToFile(forestJson)
-
-                    currentEpisodeDir?.let { dir ->
-                        captureScreenshot(dir, currentTreeIndex - 1)
+                            currentEpisodeDir?.let { dir ->
+                                captureScreenshot(dir, currentTreeIndex - 1)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error processing event", e)
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error processing event", e)
             }
         }
     }
