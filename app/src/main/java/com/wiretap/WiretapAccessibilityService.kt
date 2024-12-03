@@ -29,6 +29,8 @@ class WiretapAccessibilityService : AccessibilityService() {
 
     private val HIERARCHY_CAPTURE_DELAY = 1000L
 
+    private var previousPackage: CharSequence? = null
+
     private var currentEpisodeDir: File? = null
     private var currentTreeIndex = 0
 
@@ -214,14 +216,21 @@ class WiretapAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 when {
                     // Check if it's an app launch
-                    event.packageName != null && event.className != null -> {
+                    event.packageName != null &&
+                            event.className != null &&
+                            !event.packageName.toString().contains("launcher") && // not the launcher itself
+                            event.className.toString().endsWith("Activity") && // it's an Activity
+                            // You might want to track the previous package to only log when it changes
+                            previousPackage != event.packageName -> {
+
+                        previousPackage = event.packageName
                         val appName = event.packageName.toString().substringAfterLast(".")
                         """
-                       {
-                         "action_type": "open_app",
-                         "app_name": "$appName"
-                       }
-                       """.trimIndent()
+                        {
+                          "action_type": "open_app",
+                          "app_name": "$appName"
+                        }
+                        """.trimIndent()
                     }
                     // Check if it's a back navigation
                     event.contentDescription?.contains("back") == true ||
