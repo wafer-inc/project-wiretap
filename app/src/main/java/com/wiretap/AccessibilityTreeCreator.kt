@@ -36,11 +36,9 @@ class AccessibilityTreeCreator() {
         val windows: List<String> = processWindowsAndBlock(windowInfos, sourcesMap)
 
         return StringBuilder().apply {
-            append("{\n")
-            append("""  "windows": [""").append("\n")
-            append(windows.joinToString(",\n"))
-            append("\n  ]\n")
-            append("}")
+            append("windows {\n")
+            append(windows.joinToString("\n"))
+            append("\n}")
         }.toString()
     }
 
@@ -65,7 +63,7 @@ class AccessibilityTreeCreator() {
         return windowInfoProtos.toList()
     }
 
-    private suspend fun processWindow(
+    private fun processWindow(
         windowInfo: AccessibilityWindowInfo,
         sources: ConcurrentHashMap<String, AccessibilityNodeInfo>,
     ): String? {
@@ -74,53 +72,50 @@ class AccessibilityTreeCreator() {
         val root: AccessibilityNodeInfo? = windowInfo.root
 
         return StringBuilder().apply {
-            append("{\n")
-            if (root == null) {
-                Log.i(TAG, "window root is null")
-                append("""  "tree": { "nodes": [] }""").append(",\n")
-            } else {
+            append("  bounds_in_screen {\n")
+            append("    left: ${bounds.left}\n")
+            append("    top: ${bounds.top}\n")
+            append("    right: ${bounds.right}\n")
+            append("    bottom: ${bounds.bottom}\n")
+            append("  }\n")
+            append("  is_active: ${windowInfo.isActive}\n")
+            append("  id: ${windowInfo.id}\n")
+            append("  layer: ${windowInfo.layer}\n")
+            append("  is_accessibility_focused: ${windowInfo.isAccessibilityFocused}\n")
+            append("  is_focused: ${windowInfo.isFocused}\n")
+            append("  window_type: ${toWindowType(windowInfo.type)}\n")
+
+            if (root != null) {
                 val treeDeferred: Deferred<String>
                 runBlocking {
                     treeDeferred = async { processNodesInWindow(root, sources) }
-                    append("""  "tree": ${treeDeferred.await()}""").append(",\n")
+                    append("  tree {\n")
+                    append(treeDeferred.await())
+                    append("  }\n")
                 }
+            } else {
+                append("  tree {\n")
+                append("    nodes {}\n")
+                append("  }\n")
             }
-
-            append("""  "isActive": ${windowInfo.isActive}""").append(",\n")
-            append("""  "id": ${windowInfo.id}""").append(",\n")
-            append("""  "layer": ${windowInfo.layer}""").append(",\n")
-            append("""  "isAccessibilityFocused": ${windowInfo.isAccessibilityFocused}""").append(",\n")
-            append("""  "isFocused": ${windowInfo.isFocused}""").append(",\n")
-            append("""  "boundsInScreen": {""").append("\n")
-            append("""    "left": ${bounds.left}""").append(",\n")
-            append("""    "top": ${bounds.top}""").append(",\n")
-            append("""    "right": ${bounds.right}""").append(",\n")
-            append("""    "bottom": ${bounds.bottom}""").append("\n")
-            append("  }").append(",\n")
-            append("""  "windowType": "${toWindowType(windowInfo.type)}" """).append("\n")
-            append("}")
         }.toString()
     }
 
     private suspend fun processNodesInWindow(
         root: AccessibilityNodeInfo,
-        sources: ConcurrentHashMap<String, AccessibilityNodeInfo>,  // Changed key type to String
-    ): String {  // Changed return type to String
-        Log.d(TAG, "processNodesInWindow()")
+        sources: ConcurrentHashMap<String, AccessibilityNodeInfo>,
+    ): String {
         val traversalQueue = ArrayDeque<ParentChildNodePair>()
         traversalQueue.add(ParentChildNodePair.builder().child(root).build())
         val uniqueIdsCache: UniqueIdsGenerator<AccessibilityNodeInfo> = UniqueIdsGenerator()
         var currentDepth = 0
-        val nodesDeferred = mutableListOf<Deferred<String>>()  // Changed to String
+        val nodesDeferred = mutableListOf<Deferred<String>>()
         val seenNodes: HashSet<AccessibilityNodeInfo> = HashSet()
         seenNodes.add(root)
-        val nodesList = mutableListOf<String>()  // To collect all nodes
+        val nodesList = mutableListOf<String>()
 
         runBlocking {
             while (!traversalQueue.isEmpty()) {
-                // Traverse the tree layer-by-layer.
-                // The first layer has only the root and depth 0.
-                // The second layer has all the root's children and depth 1.
                 for (nodesAtCurrentDepth in traversalQueue.size downTo 1) {
                     val nodePair: ParentChildNodePair = traversalQueue.removeFirst()
                     for (i in 0 until nodePair.child.childCount) {
@@ -143,87 +138,90 @@ class AccessibilityTreeCreator() {
                 }
                 currentDepth++
             }
-
-            // Collect all nodes and build the final JSON array
             nodesList.addAll(nodesDeferred.awaitAll())
         }
 
-        // Return a JSON array of all nodes
         return StringBuilder().apply {
-            append("{\n")
-            append("""  "nodes": [""").append("\n")
-            append(nodesList.joinToString(",\n"))
-            append("\n  ]\n")
-            append("}")
+            for (node in nodesList) {
+                append("    nodes {\n")
+                append(node)
+                append("    }\n")
+            }
         }.toString()
     }
-}
 
-private fun processNode(
-    nodePair: ParentChildNodePair,
-    sourceBuilder: ConcurrentHashMap<String, AccessibilityNodeInfo>,  // Changed key type to String
-    uniqueIdsCache: UniqueIdsGenerator<AccessibilityNodeInfo>,
-    nodeDepth: Int,
-): String {  // Changed return type to String
-    val node: AccessibilityNodeInfo = nodePair.child
-    val nodeString: String = createAndroidAccessibilityNode(
-        node,
-        uniqueIdsCache.getUniqueId(node),
-        nodeDepth,
-        getChildUniqueIds(node, uniqueIdsCache),
-    )
-    sourceBuilder.put(nodeString, node)  // Store the string representation as key
-    return nodeString
-}
+    private fun processNode(
+        nodePair: ParentChildNodePair,
+        sourceBuilder: ConcurrentHashMap<String, AccessibilityNodeInfo>,
+        uniqueIdsCache: UniqueIdsGenerator<AccessibilityNodeInfo>,
+        nodeDepth: Int,
+    ): String {
+        val node: AccessibilityNodeInfo = nodePair.child
+        val nodeString: String = createAndroidAccessibilityNode(
+            node,
+            uniqueIdsCache.getUniqueId(node),
+            nodeDepth,
+            getChildUniqueIds(node, uniqueIdsCache),
+        )
+        sourceBuilder.put(nodeString, node)
+        return nodeString
+    }
 
-private fun createAndroidAccessibilityNode(
-    node: AccessibilityNodeInfo,
-    nodeId: Int,
-    depth: Int,
-    childIds: List<Int>
-): String {
-    val bounds = Rect()
-    node.getBoundsInScreen(bounds)
-    val actions = node.getActionList().stream()
-        .map { action -> """{"id": ${action.id}, "label": "${stringFromNullableCharSequence(action.label)}"}""" }
-        .collect(Collectors.joining(", "))
+    private fun createAndroidAccessibilityNode(
+        node: AccessibilityNodeInfo,
+        nodeId: Int,
+        depth: Int,
+        childIds: List<Int>
+    ): String {
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
 
-    return StringBuilder().apply {
-        append("{\n")
-        append("""  "actions": [$actions],""").append("\n")
-        append("""  "boundsInScreen": {""").append("\n")
-        append("""    "left": ${bounds.left},""").append("\n")
-        append("""    "top": ${bounds.top},""").append("\n")
-        append("""    "right": ${bounds.right},""").append("\n")
-        append("""    "bottom": ${bounds.bottom}""").append("\n")
-        append("  },\n")
-        append("""  "isCheckable": ${node.isCheckable},""").append("\n")
-        append("""  "isChecked": ${node.isChecked},""").append("\n")
-        append("""  "className": "${stringFromNullableCharSequence(node.getClassName())}",""").append("\n")
-        append("""  "isClickable": ${node.isClickable},""").append("\n")
-        append("""  "contentDescription": "${stringFromNullableCharSequence(node.getContentDescription())}",""").append("\n")
-        append("""  "isEditable": ${node.isEditable},""").append("\n")
-        append("""  "isEnabled": ${node.isEnabled},""").append("\n")
-        append("""  "isFocusable": ${node.isFocusable},""").append("\n")
-        append("""  "hintText": "${stringFromNullableCharSequence(node.getHintText())}",""").append("\n")
-        append("""  "isLongClickable": ${node.isLongClickable},""").append("\n")
-        append("""  "packageName": "${stringFromNullableCharSequence(node.getPackageName())}",""").append("\n")
-        append("""  "isPassword": ${node.isPassword},""").append("\n")
-        append("""  "isScrollable": ${node.isScrollable},""").append("\n")
-        append("""  "isSelected": ${node.isSelected},""").append("\n")
-        append("""  "text": "${stringFromNullableCharSequence(node.getText())}",""").append("\n")
-        append("""  "textSelectionEnd": ${node.getTextSelectionEnd()},""").append("\n")
-        append("""  "textSelectionStart": ${node.getTextSelectionStart()},""").append("\n")
-        append("""  "viewIdResourceName": "${node.getViewIdResourceName() ?: ""}",""").append("\n")
-        append("""  "isVisibleToUser": ${node.isVisibleToUser},""").append("\n")
-        append("""  "windowId": ${node.windowId},""").append("\n")
-        append("""  "uniqueId": $nodeId,""").append("\n")
-        append("""  "childIds": [${childIds.joinToString(", ")}],""").append("\n")
-        append("""  "drawingOrder": ${node.drawingOrder},""").append("\n")
-        append("""  "tooltipText": "${stringFromNullableCharSequence(node.getTooltipText())}",""").append("\n")
-        append("""  "depth": $depth""").append("\n")
-        append("}")
-    }.toString()
+        return StringBuilder().apply {
+            append("      bounds_in_screen {\n")
+            append("        left: ${bounds.left}\n")
+            append("        top: ${bounds.top}\n")
+            append("        right: ${bounds.right}\n")
+            append("        bottom: ${bounds.bottom}\n")
+            append("      }\n")
+            append("      is_checkable: ${node.isCheckable}\n")
+            append("      is_checked: ${node.isChecked}\n")
+            append("      class_name: \"${stringFromNullableCharSequence(node.className)}\"\n")
+            append("      is_clickable: ${node.isClickable}\n")
+            append("      content_description: \"${stringFromNullableCharSequence(node.contentDescription)}\"\n")
+            append("      is_editable: ${node.isEditable}\n")
+            append("      is_enabled: ${node.isEnabled}\n")
+            append("      is_focusable: ${node.isFocusable}\n")
+            append("      hint_text: \"${stringFromNullableCharSequence(node.hintText)}\"\n")
+            append("      is_long_clickable: ${node.isLongClickable}\n")
+            append("      package_name: \"${stringFromNullableCharSequence(node.packageName)}\"\n")
+            append("      is_password: ${node.isPassword}\n")
+            append("      is_scrollable: ${node.isScrollable}\n")
+            append("      is_selected: ${node.isSelected}\n")
+            append("      text: \"${stringFromNullableCharSequence(node.text)}\"\n")
+            append("      text_selection_end: ${node.textSelectionEnd}\n")
+            append("      text_selection_start: ${node.textSelectionStart}\n")
+            append("      view_id_resource_name: \"${node.viewIdResourceName ?: ""}\"\n")
+            append("      is_visible_to_user: ${node.isVisibleToUser}\n")
+            append("      window_id: ${node.windowId}\n")
+            append("      unique_id: $nodeId\n")
+            append("      drawing_order: ${node.drawingOrder}\n")
+            append("      tooltip_text: \"${stringFromNullableCharSequence(node.tooltipText)}\"\n")
+            append("      depth: $depth\n")
+
+            // Process actions
+            node.actionList?.forEach { action ->
+                append("      actions {\n")
+                append("        id: ${action.id}\n")
+                append("        label: \"${stringFromNullableCharSequence(action.label)}\"\n")
+                append("      }\n")
+            }
+
+            // Process child IDs
+            childIds.forEach { childId ->
+                append("      child_ids: $childId\n")
+            }
+        }.toString()
+    }
 }
 
 private fun getChildUniqueIds(

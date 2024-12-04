@@ -64,14 +64,15 @@ class WiretapAccessibilityService : AccessibilityService() {
 
     private fun saveMetadata() {
         currentEpisodeDir?.let { dir ->
+            val actionsJson = recordingActions.joinToString(",\n")  // Remove the extra indentation
+
             val metadata = """
-            {
-                "goal": ${currentGoal?.let { "\"$it\"" } ?: "null"},
-                "actions": [
-                    ${recordingActions.joinToString(",\n    ")}
-                ]
-            }
-            """.trimIndent()
+{
+  "goal": ${currentGoal?.let { "\"$it\"" } ?: "null"},
+  "actions": [
+    $actionsJson
+  ]
+}""".trimIndent()
 
             File(dir, "metadata.json").writeText(metadata)
         }
@@ -134,7 +135,8 @@ class WiretapAccessibilityService : AccessibilityService() {
 
     private var isRecording = false
     private var currentGoal: String? = null
-    private val recordingActions = mutableListOf<String>()
+    private val
+            recordingActions = mutableListOf<String>()
 
     private val recordingReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -184,11 +186,11 @@ class WiretapAccessibilityService : AccessibilityService() {
                     delay(TEXT_INPUT_DELAY)  // Wait for 1 second of no typing
 
                     val textInputJson = """
-               {
-                 "action_type": "input_text",
-                 "text": "$text"
-               }
-               """.trimIndent()
+                    {
+                      "action_type": "input_text",
+                      "text": "$text"
+                    }
+                    """.trimIndent()
 
                     try {
                         recordingActions.add(textInputJson)
@@ -220,12 +222,12 @@ class WiretapAccessibilityService : AccessibilityService() {
                             val x = (rect.left + rect.right) / 2
                             val y = (rect.top + rect.bottom) / 2
                             """
-                       {
-                         "action_type": "click",
-                         "x": $x,
-                         "y": $y
-                       }
-                       """.trimIndent()
+                            {
+                              "action_type": "click",
+                              "x": $x,
+                              "y": $y
+                            }
+                            """.trimIndent()
                         }
                     }
 
@@ -241,20 +243,20 @@ class WiretapAccessibilityService : AccessibilityService() {
                                 previousPackage = event.packageName
                                 val appName = event.packageName.toString().substringAfterLast(".")
                                 """
-                           {
-                             "action_type": "open_app",
-                             "app_name": "$appName"
-                           }
-                           """.trimIndent()
+                                {
+                                  "action_type": "open_app",
+                                  "app_name": "$appName"
+                                }
+                                """.trimIndent()
                             }
                             // Back navigation
                             event.contentDescription?.contains("back") == true ||
                                     event.className?.contains("back") == true -> {
                                 """
-                           {
-                             "action_type": "navigate_back"
-                           }
-                           """.trimIndent()
+                                {
+                                  "action_type": "navigate_back"
+                                }
+                                """.trimIndent()
                             }
                             else -> null
                         }
@@ -264,29 +266,29 @@ class WiretapAccessibilityService : AccessibilityService() {
                     AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
                         when {
                             event.scrollDeltaY < 0 -> """
-                           {
-                             "action_type": "scroll",
-                             "direction": "up"
-                           }
-                           """.trimIndent()
+                                {
+                                  "action_type": "scroll",
+                                  "direction": "up"
+                                }
+                                """.trimIndent()
                             event.scrollDeltaY > 0 -> """
-                           {
-                             "action_type": "scroll",
-                             "direction": "down"
-                           }
-                           """.trimIndent()
+                                {
+                                  "action_type": "scroll",
+                                  "direction": "down"
+                                }
+                                """.trimIndent()
                             event.scrollDeltaX < 0 -> """
-                           {
-                             "action_type": "scroll",
-                             "direction": "left"
-                           }
-                           """.trimIndent()
+                                {
+                                  "action_type": "scroll",
+                                  "direction": "left"
+                                }
+                                """.trimIndent()
                             event.scrollDeltaX > 0 -> """
-                           {
-                             "action_type": "scroll",
-                             "direction": "right"
-                           }
-                           """.trimIndent()
+                                {
+                                  "action_type": "scroll",
+                                  "direction": "right"
+                                }
+                                """.trimIndent()
                             else -> null
                         }
                     }
