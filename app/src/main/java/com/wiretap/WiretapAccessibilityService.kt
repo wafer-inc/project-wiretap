@@ -34,6 +34,15 @@ class WiretapAccessibilityService : AccessibilityService() {
     private var currentEpisodeDir: File? = null
     private var currentTreeIndex = 0
 
+    private var hasReachedLauncher = false
+    private var launcherVisitCount = 0
+    private var isStartRequested = false
+
+
+    private fun isLauncher(packageName: String?): Boolean {
+        return packageName?.contains("launcher", ignoreCase = true) == true
+    }
+
     private fun initializeNewEpisode() {
         // Use getExternalFilesDir which is app-specific but still accessible via ADB
         val datasetDir = File(getExternalFilesDir(null), "wiretap_dataset")
@@ -142,23 +151,30 @@ class WiretapAccessibilityService : AccessibilityService() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 "com.wiretap.START_RECORDING" -> {
-                    isRecording = true
+                    isStartRequested = true
                     currentGoal = intent.getStringExtra("goal")
                     recordingActions.clear()
-                    initializeNewEpisode()
-                    Log.d(TAG, "Started recording for goal: $currentGoal")
+                    // We'll initialize the episode when we actually start recording
+                    Log.d(TAG, "Waiting for home screen before starting recording for goal: $currentGoal")
                 }
                 "com.wiretap.STOP_RECORDING" -> {
-                    isRecording = false
-                    saveMetadata()
-                    Log.d(TAG, "Recording completed and saved to ${currentEpisodeDir?.absolutePath}")
-                    currentEpisodeDir = null
-                    currentGoal = null
-                    recordingActions.clear()
-                    currentTreeIndex = 0
+                    stopRecording()
                 }
             }
         }
+    }
+
+    private fun stopRecording() {
+        isRecording = false
+        isStartRequested = false
+        hasReachedLauncher = false
+        launcherVisitCount = 0
+        saveMetadata()
+        Log.d(TAG, "Recording completed and saved to ${currentEpisodeDir?.absolutePath}")
+        currentEpisodeDir = null
+        currentGoal = null
+        recordingActions.clear()
+        currentTreeIndex = 0
     }
 
     override fun onCreate() {
@@ -174,6 +190,39 @@ class WiretapAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val packageName = event.packageName?.toString()
+
+            if (isStartRequested && !isRecording && isLauncher(packageName)) {
+                // First launcher visit - start recording
+                isRecording = true
+                hasReachedLauncher = true
+                launcherVisitCount = 1
+                initializeNewEpisode()
+
+                // Capture initial launcher state
+                serviceScope.launch {
+                    val windows = windows?.toList() ?: emptyList()
+                    val forestJson = treeCreator.buildForest(windows)
+                    saveTreeToFile(forestJson)
+
+                    currentEpisodeDir?.let { dir ->
+                        captureScreenshot(dir, currentTreeIndex - 1)
+                    }
+                }
+
+                Log.d(TAG, "Reached launcher, captured initial state and started recording")
+                return
+            } else if (isRecording && isLauncher(packageName)) {
+                // Second launcher visit - stop recording
+                if (launcherVisitCount == 1) {
+                    Log.d(TAG, "Returned to launcher, stopping recording")
+                    stopRecording()
+                    return
+                }
+            }
+        }
+
         if (!isRecording) return
 
         when (event.eventType) {
