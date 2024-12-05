@@ -290,7 +290,7 @@ class WiretapAccessibilityService : AccessibilityService() {
                                     event.className.toString().endsWith("Activity") &&
                                     previousPackage != event.packageName -> {
                                 previousPackage = event.packageName
-                                val appName = event.packageName.toString().substringAfterLast(".")
+                                val appName = event.packageName.toString()
                                 """
                                 {
                                   "action_type": "open_app",
