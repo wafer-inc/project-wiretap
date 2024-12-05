@@ -375,11 +375,4 @@ class WiretapAccessibilityService : AccessibilityService() {
         super.onDestroy()
         serviceScope.cancel()
     }
-    
-    private fun isSystemPackage(packageName: String): Boolean {
-        return packageName.matches(Regex("com\\.android.*")) ||  // Android system apps
-                packageName.contains("launcher", ignoreCase = true) ||  // Launchers
-                packageName == "android" ||  // Android system
-                packageName == applicationContext.packageName  // Our own app
-    }
 }

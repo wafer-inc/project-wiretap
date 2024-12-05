@@ -36,9 +36,9 @@ class AccessibilityTreeCreator() {
         val windows: List<String> = processWindowsAndBlock(windowInfos, sourcesMap)
 
         return StringBuilder().apply {
-            append("windows {\n")
-            append(windows.joinToString("\n"))
-            append("\n}")
+            append(windows.joinToString("\n") { window ->
+                "windows {\n$window\n}"
+            })
         }.toString()
     }
 
@@ -57,8 +57,15 @@ class AccessibilityTreeCreator() {
     ): List<String> {
         var windowInfoProtos = mutableListOf<String>()
         for (i in windowInfos.size - 1 downTo 0) {
-            val windowInfoProto = processWindow(windowInfos.get(i), sourcesMap)
-            windowInfoProto?.let { windowInfoProtos.add(windowInfoProto) }
+            val window = windowInfos.get(i)
+            val bounds = Rect()
+            window.getBoundsInScreen(bounds)
+
+            // Only process window if bounds start at (0,0)
+            if (bounds.left == 0 && bounds.top == 0) {
+                val windowInfoProto = processWindow(window, sourcesMap)
+                windowInfoProto?.let { windowInfoProtos.add(windowInfoProto) }
+            }
         }
         return windowInfoProtos.toList()
     }
