@@ -1,6 +1,5 @@
 package com.wiretap
 
-import android.accessibilityservice.AccessibilityGestureEvent
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.BroadcastReceiver
@@ -12,11 +11,9 @@ import android.os.Build
 import android.util.Log
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
-import androidx.annotation.RequiresApi
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
-
 
 class WiretapAccessibilityService : AccessibilityService() {
     private val TAG = "WiretapAccessibility"
@@ -28,6 +25,10 @@ class WiretapAccessibilityService : AccessibilityService() {
     // Add variables for text input debouncing
     private var textInputJob: Job? = null
     private val TEXT_INPUT_DELAY = 1000L
+    private val TYPING_COOLDOWN = 2000L
+    private val GESTURE_DELAY = 500L
+    private var lastTypingTimestamp = 0L
+    private var isTyping = false
 
     private val HIERARCHY_CAPTURE_DELAY = 500L
 
@@ -41,6 +42,62 @@ class WiretapAccessibilityService : AccessibilityService() {
     private var isStartRequested = false
 
     private var lastActionTimestamp: Long = 0L
+
+    private sealed class Action {
+        data class TextInput(val text: String) : Action()
+        data class AppLaunch(val appName: String) : Action()
+        object NavigateBack : Action()  // Use object instead of class
+        data class Click(val x: Int, val y: Int) : Action()
+        data class Swipe(
+            val direction: String,
+            val startX: Int,
+            val startY: Int,
+            val endX: Int,
+            val endY: Int
+        ) : Action()
+    }
+
+    private fun Action.toJson(): String = when (this) {
+        is Action.TextInput -> """
+            {
+              "action_type": "input_text",
+              "text": "$text"
+            }""".trimIndent()
+
+        is Action.AppLaunch -> """
+            {
+              "action_type": "open_app",
+              "app_name": "$appName"
+            }""".trimIndent()
+
+        is Action.NavigateBack -> """
+            {
+              "action_type": "navigate_back"
+            }""".trimIndent()
+
+        is Action.Click -> """
+            {
+              "action_type": "click",
+              "coordinates": {
+                "x": $x,
+                "y": $y
+              }
+            }""".trimIndent()
+
+        is Action.Swipe -> """
+            {
+              "action_type": "swipe",
+              "direction": "$direction",
+              "coordinates": {
+                "start_x": $startX,
+                "start_y": $startY,
+                "end_x": $endX,
+                "end_y": $endY
+              }
+            }""".trimIndent()
+    }
+
+    private var pendingGestureJob: Job? = null
 
     private fun isLauncher(packageName: String?): Boolean {
         return packageName?.contains("launcher", ignoreCase = true) == true
@@ -173,8 +230,12 @@ class WiretapAccessibilityService : AccessibilityService() {
                     currentGoal = intent.getStringExtra("goal")
                     recordingActions.clear()
                     // We'll initialize the episode when we actually start recording
-                    Log.d(TAG, "Waiting for home screen before starting recording for goal: $currentGoal")
+                    Log.d(
+                        TAG,
+                        "Waiting for home screen before starting recording for goal: $currentGoal"
+                    )
                 }
+
                 "com.wiretap.STOP_RECORDING" -> {
                     stopRecording()
                 }
@@ -231,175 +292,132 @@ class WiretapAccessibilityService : AccessibilityService() {
 
         if (!isRecording) return
 
-        val currentTime = System.currentTimeMillis()
-        if (lastActionTimestamp == 0L || currentTime - lastActionTimestamp > 600) {
-            when (event.eventType) {
-                // Text input events - handle separately with debounce
-                AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
-                    val text = event.text?.joinToString("") ?: ""
-                    Log.d(TAG, "Typed: $text")
-                    textInputJob?.cancel()
-                    textInputJob = serviceScope.launch {
-                        delay(TEXT_INPUT_DELAY)  // Wait for 1 second of no typing
-
-                        val textInputJson = """
-                        {
-                          "action_type": "input_text",
-                          "text": "$text"
-                        }
-                        """.trimIndent()
-
-                        try {
-                            recordingActions.add(textInputJson)
-                            delay(HIERARCHY_CAPTURE_DELAY)
-
-                            val windows = windows?.toList() ?: emptyList()
-                            val forestJson = treeCreator.buildForest(windows)
-                            saveTreeToFile(forestJson)
-
-                            currentEpisodeDir?.let { dir ->
-                                captureScreenshot(dir, currentTreeIndex - 1)
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error processing text input event", e)
-                        }
-                    }
-                    return  // Return early for text events
-                }
-
-                // All other events - handle immediately
-                else -> {
-                    val action = when (event.eventType) {
-                        // Navigation and app launch events
-                        AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                            when {
-                                // App launch
-                                event.packageName != null &&
-                                        event.className != null &&
-                                        !isLauncher(event.packageName.toString()) &&
-                                        event.className.toString().endsWith("Activity") &&
-                                        previousPackage != event.packageName -> {
-                                    previousPackage = event.packageName
-                                    val appName = event.packageName.toString()
-                                    """
-                                    {
-                                      "action_type": "open_app",
-                                      "app_name": "$appName"
-                                    }
-                                    """.trimIndent()
-                                }
-                                // Back navigation
-                                event.contentDescription?.contains("back") == true ||
-                                        event.className?.contains("back") == true -> {
-                                    """
-                                    {
-                                      "action_type": "navigate_back"
-                                    }
-                                    """.trimIndent()
-                                }
-
-                                else -> null
-                            }
-                        }
-
-                        else -> null
-                    }
-
-
-                    action?.let { actionJson ->
-                        try {
-                            serviceScope.launch {
-                                recordingActions.add(actionJson)
-                                delay(HIERARCHY_CAPTURE_DELAY)
-
-                                val windows = windows?.toList() ?: emptyList()
-                                val forestJson = treeCreator.buildForest(windows)
-                                saveTreeToFile(forestJson)
-
-                                currentEpisodeDir?.let { dir ->
-                                    captureScreenshot(dir, currentTreeIndex - 1)
-                                }
-                            }
-                            lastActionTimestamp = System.currentTimeMillis()
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error processing event", e)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private fun handleStartRecording(intent: Intent) {
-        isStartRequested = true
-        currentGoal = intent.getStringExtra("goal")
-        recordingActions.clear()
-        Log.d(TAG, "Waiting for home screen before starting recording for goal: $currentGoal")
-    }
-
-    private fun handleStopRecording() {
-        stopRecording()
-    }
-
-    private val gestureReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            Log.d(TAG, "Service received gesture broadcast directly")
-            if (!isRecording) {
-                Log.d(TAG, "Not recording, ignoring gesture")
-                return
+        val action = when (event.eventType) {
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
+                val text = event.text?.joinToString("") ?: ""
+                handleTextInput(text)
+                return  // Early return to avoid immediate processing
             }
 
-            val type = intent?.getStringExtra("type")
-            Log.d(TAG, "Processing gesture type: $type")
-            val x = intent?.getIntExtra("x", 0) ?: 0
-            val y = intent?.getIntExtra("y", 0) ?: 0
-            val x2 = intent?.getIntExtra("x2", -1)
-            val y2 = intent?.getIntExtra("y2", -1)
-
-            // Create gesture action JSON
-            val gestureJson = when (type) {
-                "CLICK" -> """
-                {
-                  "action_type": "click",
-                  "coordinates": {
-                    "x": $x,
-                    "y": $y
-                  }
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> when {
+                event.packageName != null &&
+                        event.className != null &&
+                        !isLauncher(event.packageName.toString()) &&
+                        event.className.toString().endsWith("Activity") &&
+                        previousPackage != event.packageName -> {
+                    previousPackage = event.packageName
+                    Action.AppLaunch(event.packageName.toString())
                 }
-                """.trimIndent()
 
-                "SWIPE_LEFT", "SWIPE_RIGHT", "SWIPE_UP", "SWIPE_DOWN" -> """
-                {
-                  "action_type": "swipe",
-                  "direction": "$type",
-                  "coordinates": {
-                    "start_x": $x,
-                    "start_y": $y,
-                    "end_x": $x2,
-                    "end_y": $y2
-                  }
+                event.contentDescription?.contains("back") == true ||
+                        event.className?.contains("back") == true -> {
+                    Action.NavigateBack
                 }
-                """.trimIndent()
 
                 else -> null
             }
 
-            gestureJson?.let { actionJson ->
-                Log.d(TAG, "Recording gesture: $actionJson")
-                serviceScope.launch {
-                    recordingActions.add(actionJson)
-                    delay(HIERARCHY_CAPTURE_DELAY)
+            else -> null
+        }
 
-                    val windows = windows?.toList() ?: emptyList()
-                    val forestJson = treeCreator.buildForest(windows)
-                    saveTreeToFile(forestJson)
+        action?.let { handleAccessibilityAction(it) }
+    }
 
-                    currentEpisodeDir?.let { dir ->
-                        captureScreenshot(dir, currentTreeIndex - 1)
-                    }
-                }
-                lastActionTimestamp = System.currentTimeMillis()
+    private suspend fun processAction(action: Action) {
+        val actionJson = action.toJson()
+        recordingActions.add(actionJson)
+
+        delay(HIERARCHY_CAPTURE_DELAY)
+        val windows = windows?.toList() ?: emptyList()
+        val forestJson = treeCreator.buildForest(windows)
+        saveTreeToFile(forestJson)
+
+        currentEpisodeDir?.let { dir ->
+            captureScreenshot(dir, currentTreeIndex - 1)
+        }
+
+        lastActionTimestamp = System.currentTimeMillis()
+    }
+
+    private fun handleAccessibilityAction(action: Action) {
+        // Cancel any pending gesture since we got an accessibility event
+        pendingGestureJob?.cancel()
+
+        if (!isRecording) return
+
+        serviceScope.launch {
+            processAction(action)
+        }
+    }
+
+    private fun handleTextInput(text: String) {
+        val currentTime = System.currentTimeMillis()
+
+        // Cancel any existing text input job
+        textInputJob?.cancel()
+
+        // Cancel any pending gesture jobs since we're now typing
+        pendingGestureJob?.cancel()
+        Log.d(TAG, "Cancelled pending gesture jobs due to text input")
+
+        // Mark that we're in typing mode
+        isTyping = true
+        lastTypingTimestamp = currentTime
+
+        // Debounce text input
+        textInputJob = serviceScope.launch {
+            delay(TEXT_INPUT_DELAY)
+
+            // Process the text input action
+            processAction(Action.TextInput(text))
+
+            // Add cooldown period after typing
+            delay(TYPING_COOLDOWN)
+            isTyping = false
+        }
+    }
+
+    private fun queueGestureAction(action: Action) {
+        if (!isRecording) return
+
+        pendingGestureJob?.cancel()
+        pendingGestureJob = serviceScope.launch {
+            // First delay to wait for potential accessibility events
+            delay(GESTURE_DELAY)
+
+            // Get timestamp after the delay
+            val currentTime = System.currentTimeMillis()
+
+            // Check if any accessibility events happened during or slightly before our delay
+            // Add a small buffer before the delay to catch events that might be slightly out of sync
+            if (lastActionTimestamp >= (currentTime - GESTURE_DELAY - 100)) {
+                Log.d(TAG, "Discarding gesture as accessibility event occurred recently")
+                return@launch
             }
+
+            processAction(action)
+        }
+    }
+
+    private val gestureReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val type = intent?.getStringExtra("type")
+            val x = intent?.getIntExtra("x", 0) ?: 0
+            val y = intent?.getIntExtra("y", 0) ?: 0
+
+            val action = when (type) {
+                "CLICK" -> Action.Click(x, y)
+                "SWIPE_LEFT", "SWIPE_RIGHT", "SWIPE_UP", "SWIPE_DOWN" -> Action.Swipe(
+                    direction = type,
+                    startX = x,
+                    startY = y,
+                    endX = intent.getIntExtra("x2", -1),
+                    endY = intent.getIntExtra("y2", -1)
+                )
+                else -> null
+            }
+
+            action?.let { queueGestureAction(it) }
         }
     }
 
