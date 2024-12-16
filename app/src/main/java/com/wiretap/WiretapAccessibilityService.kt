@@ -43,6 +43,9 @@ class WiretapAccessibilityService : AccessibilityService() {
 
     private var lastActionTimestamp: Long = 0L
 
+    private val screenshotWidths = mutableListOf<Int>()
+    private val screenshotHeights = mutableListOf<Int>()
+
     private sealed class Action {
         data class TextInput(val text: String) : Action()
         data class AppLaunch(val appName: String) : Action()
@@ -104,22 +107,19 @@ class WiretapAccessibilityService : AccessibilityService() {
     }
 
     private fun initializeNewEpisode() {
-        // Use getExternalFilesDir which is app-specific but still accessible via ADB
+        // Clear any existing screenshot dimensions
+        screenshotWidths.clear()
+        screenshotHeights.clear()
+
+        // Rest of initialization code...
         val datasetDir = File(getExternalFilesDir(null), "wiretap_dataset")
         if (!datasetDir.exists()) {
             datasetDir.mkdirs()
         }
-
-        // Find the next episode number
         val episodeNumber = datasetDir.listFiles()?.size ?: 0
-
-        // Create new episode directory
         currentEpisodeDir = File(datasetDir, "episode_$episodeNumber")
         currentEpisodeDir?.mkdirs()
-
-        // Reset tree index
         currentTreeIndex = 0
-
         Log.d(TAG, "Created new episode directory: ${currentEpisodeDir?.absolutePath}")
     }
 
@@ -133,11 +133,17 @@ class WiretapAccessibilityService : AccessibilityService() {
 
     private fun saveMetadata() {
         currentEpisodeDir?.let { dir ->
-            val actionsJson = recordingActions.joinToString(",\n")  // Remove the extra indentation
+            val actionsJson = recordingActions.joinToString(",\n")
 
             val metadata = """
 {
   "goal": ${currentGoal?.let { "\"$it\"" } ?: "null"},
+  "screenshot_widths": [
+    ${screenshotWidths.joinToString(",\n    ")}
+  ],
+  "screenshot_heights": [
+    ${screenshotHeights.joinToString(",\n    ")}
+  ],
   "actions": [
     $actionsJson
   ]
@@ -160,6 +166,11 @@ class WiretapAccessibilityService : AccessibilityService() {
                         )
 
                         try {
+                            bitmap?.let {
+                                screenshotWidths.add(it.width)
+                                screenshotHeights.add(it.height)
+                            }
+
                             val screenshotFile = File(episodeDir, "screenshot_$index.png")
                             FileOutputStream(screenshotFile).use { out ->
                                 bitmap?.compress(Bitmap.CompressFormat.PNG, 100, out)
@@ -254,6 +265,9 @@ class WiretapAccessibilityService : AccessibilityService() {
         currentGoal = null
         recordingActions.clear()
         currentTreeIndex = 0
+        // Clear screenshot dimensions
+        screenshotWidths.clear()
+        screenshotHeights.clear()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
