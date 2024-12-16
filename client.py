@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import subprocess
 import re
-from typing import Optional
+from typing import Optional, Tuple
 import time
 from enum import Enum, auto
 
@@ -109,6 +109,13 @@ class GestureDetector:
             value=int(value_hex, 16)
         )
 
+    def scale_coordinate(self, x: int, y: int) -> Tuple[int, int]:
+        """Scale coordinates to actual screen dimensions."""
+        # Scale to 1080x2640
+        scaled_x = int(x * 1080 / 4095)  # Assuming max input of 4095
+        scaled_y = int(y * 2640 / 4095)
+        return scaled_x, scaled_y
+
     def process_event(self, event: EventData):
         if event.type == self.EV_KEY and event.code == self.BTN_TOUCH:
             self.touch_state.touching = bool(event.value)
@@ -119,14 +126,18 @@ class GestureDetector:
 
         elif event.type == self.EV_ABS:
             if event.code == self.ABS_MT_POSITION_X:
-                self.touch_state.x = event.value
+                scaled_x, _ = self.scale_coordinate(
+                    event.value, self.touch_state.y)
+                self.touch_state.x = scaled_x
                 if self.touch_state.start_x is None and self.touch_state.touching:
-                    self.touch_state.start_x = event.value
+                    self.touch_state.start_x = scaled_x
 
             elif event.code == self.ABS_MT_POSITION_Y:
-                self.touch_state.y = event.value
+                _, scaled_y = self.scale_coordinate(
+                    self.touch_state.x, event.value)
+                self.touch_state.y = scaled_y
                 if self.touch_state.start_y is None and self.touch_state.touching:
-                    self.touch_state.start_y = event.value
+                    self.touch_state.start_y = scaled_y
                     self.on_touch_start()
 
             elif event.code == self.ABS_MT_TRACKING_ID:
