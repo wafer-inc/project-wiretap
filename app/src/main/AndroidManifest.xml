@@ -26,7 +26,8 @@
         <service
             android:name=".WiretapAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="false">
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
@@ -34,16 +35,14 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
         <receiver
-            android:name=".WiretapAccessibilityService$recordingReceiver"
-            android:exported="false">
+            android:name=".RecordingReceiver"
+            android:exported="true">
             <intent-filter>
                 <action android:name="com.wiretap.START_RECORDING" />
                 <action android:name="com.wiretap.STOP_RECORDING" />
             </intent-filter>
         </receiver>
     </application>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.TAKE_SCREENSHOT" />
 </manifest>
