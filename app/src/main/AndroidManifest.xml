@@ -35,14 +35,5 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
-
-        <receiver
-            android:name=".RecordingReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.wiretap.START_RECORDING" />
-                <action android:name="com.wiretap.STOP_RECORDING" />
-            </intent-filter>
-        </receiver>
     </application>
 </manifest>
