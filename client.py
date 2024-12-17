@@ -163,7 +163,7 @@ class GestureDetector:
             if abs(dx) > abs(dy):
                 return GestureType.SWIPE_RIGHT if dx > 0 else GestureType.SWIPE_LEFT
             else:
-                return GestureType.SWIPE_DOWN if dy > 0 else GestureType.SWIPE_UP
+                return GestureType.SWIPE_UP if dy > 0 else GestureType.SWIPE_DOWN
 
         return None
 

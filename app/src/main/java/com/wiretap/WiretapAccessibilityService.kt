@@ -30,7 +30,7 @@ class WiretapAccessibilityService : AccessibilityService() {
     private var lastTypingTimestamp = 0L
     private var isTyping = false
 
-    private val HIERARCHY_CAPTURE_DELAY = 500L
+    private val HIERARCHY_CAPTURE_DELAY = 750L
 
     private var previousPackage: CharSequence? = null
 
@@ -81,22 +81,14 @@ class WiretapAccessibilityService : AccessibilityService() {
         is Action.Click -> """
             {
               "action_type": "click",
-              "coordinates": {
-                "x": $x,
-                "y": $y
-              }
+              "x": $x,
+              "y": $y
             }""".trimIndent()
 
         is Action.Swipe -> """
             {
-              "action_type": "swipe",
-              "direction": "$direction",
-              "coordinates": {
-                "start_x": $startX,
-                "start_y": $startY,
-                "end_x": $endX,
-                "end_y": $endY
-              }
+              "action_type": "scroll",
+              "direction": "$direction"
             }""".trimIndent()
     }
 
@@ -137,6 +129,7 @@ class WiretapAccessibilityService : AccessibilityService() {
 
             val metadata = """
 {
+  "episode_id": ${currentEpisodeId},
   "goal": ${currentGoal?.let { "\"$it\"" } ?: "null"},
   "screenshot_widths": [
     ${screenshotWidths.joinToString(",\n    ")}
