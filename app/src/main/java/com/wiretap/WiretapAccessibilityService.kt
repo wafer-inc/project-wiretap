@@ -124,12 +124,14 @@ class WiretapAccessibilityService : AccessibilityService() {
     }
 
     private fun saveMetadata() {
+        val datasetDir = File(getExternalFilesDir(null), "wiretap_dataset")
+        val episodeNumber = datasetDir.listFiles()?.size ?: 0
         currentEpisodeDir?.let { dir ->
             val actionsJson = recordingActions.joinToString(",\n")
 
             val metadata = """
 {
-  "episode_id": ${currentEpisodeId},
+  "episode_id": ${episodeNumber},
   "goal": ${currentGoal?.let { "\"$it\"" } ?: "null"},
   "screenshot_widths": [
     ${screenshotWidths.joinToString(",\n    ")}

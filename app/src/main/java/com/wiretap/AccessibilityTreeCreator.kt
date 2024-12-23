@@ -95,7 +95,7 @@ class AccessibilityTreeCreator() {
             if (root != null) {
                 val treeDeferred: Deferred<String>
                 runBlocking {
-                    treeDeferred = async { processNodesInWindow(root, sources) }
+                    treeDeferred = async { processNodesInWindowDepthFirst(root, sources) }
                     append("  tree {\n")
                     append(treeDeferred.await())
                     append("  }\n")
@@ -157,6 +157,58 @@ class AccessibilityTreeCreator() {
         }.toString()
     }
 
+    private suspend fun processNodesInWindowDepthFirst(
+        root: AccessibilityNodeInfo,
+        sources: ConcurrentHashMap<String, AccessibilityNodeInfo>,
+    ): String {
+        val uniqueIdsCache: UniqueIdsGenerator<AccessibilityNodeInfo> = UniqueIdsGenerator()
+        val seenNodes: HashSet<AccessibilityNodeInfo> = HashSet()
+        val nodesList = mutableListOf<String>()
+
+        suspend fun processNodeDfs(
+            nodePair: ParentChildNodePair,
+            depth: Int
+        ) {
+            if (seenNodes.contains(nodePair.child)) {
+                return
+            }
+
+            seenNodes.add(nodePair.child)
+
+            // Process current node
+            val nodeString = processNode(nodePair, sources, uniqueIdsCache, depth)
+            nodesList.add(nodeString)
+
+            // Process all children recursively
+            for (i in 0 until nodePair.child.childCount) {
+                val childNode: AccessibilityNodeInfo? = nodePair.child.getChild(i)
+                if (childNode != null) {
+                    val childPair = ParentChildNodePair.builder()
+                        .child(childNode)
+                        .parent(nodePair.child)
+                        .build()
+                    processNodeDfs(childPair, depth + 1)
+                }
+            }
+        }
+
+        // Start processing from root
+        runBlocking {
+            val rootPair = ParentChildNodePair.builder()
+                .child(root)
+                .build()
+            processNodeDfs(rootPair, 0)
+        }
+
+        return StringBuilder().apply {
+            for (node in nodesList) {
+                append("    nodes {\n")
+                append(node)
+                append("    }\n")
+            }
+        }.toString()
+    }
+
     private fun processNode(
         nodePair: ParentChildNodePair,
         sourceBuilder: ConcurrentHashMap<String, AccessibilityNodeInfo>,
@@ -192,34 +244,34 @@ class AccessibilityTreeCreator() {
             append("      }\n")
             append("      is_checkable: ${node.isCheckable}\n")
             append("      is_checked: ${node.isChecked}\n")
-            append("      class_name: \"${stringFromNullableCharSequence(node.className)}\"\n")
+            append("      class_name: \"${escapeString(stringFromNullableCharSequence(node.className))}\"\n")
             append("      is_clickable: ${node.isClickable}\n")
-            append("      content_description: \"${stringFromNullableCharSequence(node.contentDescription)}\"\n")
+            append("      content_description: \"${escapeString(stringFromNullableCharSequence(node.contentDescription))}\"\n")
             append("      is_editable: ${node.isEditable}\n")
             append("      is_enabled: ${node.isEnabled}\n")
             append("      is_focusable: ${node.isFocusable}\n")
-            append("      hint_text: \"${stringFromNullableCharSequence(node.hintText)}\"\n")
+            append("      hint_text: \"${escapeString(stringFromNullableCharSequence(node.hintText))}\"\n")
             append("      is_long_clickable: ${node.isLongClickable}\n")
-            append("      package_name: \"${stringFromNullableCharSequence(node.packageName)}\"\n")
+            append("      package_name: \"${escapeString(stringFromNullableCharSequence(node.packageName))}\"\n")
             append("      is_password: ${node.isPassword}\n")
             append("      is_scrollable: ${node.isScrollable}\n")
             append("      is_selected: ${node.isSelected}\n")
-            append("      text: \"${stringFromNullableCharSequence(node.text)}\"\n")
+            append("      text: \"${escapeString(stringFromNullableCharSequence(node.text))}\"\n")
             append("      text_selection_end: ${node.textSelectionEnd}\n")
             append("      text_selection_start: ${node.textSelectionStart}\n")
-            append("      view_id_resource_name: \"${node.viewIdResourceName ?: ""}\"\n")
+            append("      view_id_resource_name: \"${escapeString(node.viewIdResourceName ?: "")}\"\n")
             append("      is_visible_to_user: ${node.isVisibleToUser}\n")
             append("      window_id: ${node.windowId}\n")
             append("      unique_id: $nodeId\n")
             append("      drawing_order: ${node.drawingOrder}\n")
-            append("      tooltip_text: \"${stringFromNullableCharSequence(node.tooltipText)}\"\n")
+            append("      tooltip_text: \"${escapeString(stringFromNullableCharSequence(node.tooltipText))}\"\n")
             append("      depth: $depth\n")
 
             // Process actions
             node.actionList?.forEach { action ->
                 append("      actions {\n")
                 append("        id: ${action.id}\n")
-                append("        label: \"${stringFromNullableCharSequence(action.label)}\"\n")
+                append("        label: \"${escapeString(stringFromNullableCharSequence(action.label))}\"\n")
                 append("      }\n")
             }
 
@@ -254,3 +306,7 @@ private fun toWindowType(type: Int): String =
         AccessibilityWindowInfo.TYPE_SPLIT_SCREEN_DIVIDER -> "TYPE_SPLIT_SCREEN_DIVIDER"
         else -> "UNKNOWN_TYPE"
     }
+
+private fun escapeString(input: String?): String {
+    return input?.replace("\n", "\\n")?.replace("\"", "\\\"") ?: ""
+}
