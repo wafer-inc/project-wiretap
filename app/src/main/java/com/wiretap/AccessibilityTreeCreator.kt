@@ -1,17 +1,3 @@
-// Copyright 2024 DeepMind Technologies Limited.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 package com.wiretap
 
 import android.graphics.Rect
@@ -19,8 +5,6 @@ import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import java.util.concurrent.ConcurrentHashMap
-import java.util.stream.Collectors
-import kotlin.collections.mutableListOf
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -55,13 +39,12 @@ class AccessibilityTreeCreator() {
         windowInfos: List<AccessibilityWindowInfo>,
         sourcesMap: ConcurrentHashMap<String, AccessibilityNodeInfo>,
     ): List<String> {
-        var windowInfoProtos = mutableListOf<String>()
+        val windowInfoProtos = mutableListOf<String>()
         for (i in windowInfos.size - 1 downTo 0) {
-            val window = windowInfos.get(i)
+            val window = windowInfos[i]
             val bounds = Rect()
             window.getBoundsInScreen(bounds)
 
-            // Only process window if bounds start at (0,0)
             if (bounds.left == 0 && bounds.top == 0) {
                 val windowInfoProto = processWindow(window, sourcesMap)
                 windowInfoProto?.let { windowInfoProtos.add(windowInfoProto) }
@@ -93,36 +76,91 @@ class AccessibilityTreeCreator() {
             append("  window_type: ${toWindowType(windowInfo.type)}\n")
 
             if (root != null) {
-                val treeDeferred: Deferred<String>
+                val dfsTreeDeferred: Deferred<String>
+                val bfsTreeDeferred: Deferred<String>
+
                 runBlocking {
-                    treeDeferred = async { processNodesInWindowDepthFirst(root, sources) }
-                    append("  tree {\n")
-                    append(treeDeferred.await())
+                    dfsTreeDeferred = async { processNodesInWindowDFS(root, sources) }
+                    bfsTreeDeferred = async { processNodesInWindowBFS(root, sources) }
+
+                    append("  dfs_tree {\n")
+                    append(dfsTreeDeferred.await())
+                    append("  }\n")
+
+                    append("  bfs_tree {\n")
+                    append(bfsTreeDeferred.await())
                     append("  }\n")
                 }
             } else {
-                append("  tree {\n")
+                append("  dfs_tree {\n")
+                append("    nodes {}\n")
+                append("  }\n")
+
+                append("  bfs_tree {\n")
                 append("    nodes {}\n")
                 append("  }\n")
             }
         }.toString()
     }
 
-    private suspend fun processNodesInWindow(
+    private suspend fun processNodesInWindowDFS(
+        root: AccessibilityNodeInfo,
+        sources: ConcurrentHashMap<String, AccessibilityNodeInfo>,
+    ): String {
+        val uniqueIdsCache: UniqueIdsGenerator<AccessibilityNodeInfo> = UniqueIdsGenerator()
+        val seenNodes: HashSet<AccessibilityNodeInfo> = HashSet()
+        val nodesList = mutableListOf<String>()
+
+        suspend fun processNodeDfs(
+            nodePair: ParentChildNodePair,
+            depth: Int
+        ) {
+            if (seenNodes.contains(nodePair.child)) {
+                return
+            }
+
+            seenNodes.add(nodePair.child)
+
+            val nodeString = processNode(nodePair, sources, uniqueIdsCache, depth)
+            nodesList.add(nodeString)
+
+            for (i in 0 until nodePair.child.childCount) {
+                val childNode: AccessibilityNodeInfo? = nodePair.child.getChild(i)
+                if (childNode != null) {
+                    val childPair = ParentChildNodePair.builder()
+                        .child(childNode)
+                        .parent(nodePair.child)
+                        .build()
+                    processNodeDfs(childPair, depth + 1)
+                }
+            }
+        }
+
+        runBlocking {
+            val rootPair = ParentChildNodePair.builder()
+                .child(root)
+                .build()
+            processNodeDfs(rootPair, 0)
+        }
+
+        return nodesList.joinToString(separator = "\n") { "    nodes {\n$it    }" }
+    }
+
+    private suspend fun processNodesInWindowBFS(
         root: AccessibilityNodeInfo,
         sources: ConcurrentHashMap<String, AccessibilityNodeInfo>,
     ): String {
         val traversalQueue = ArrayDeque<ParentChildNodePair>()
         traversalQueue.add(ParentChildNodePair.builder().child(root).build())
         val uniqueIdsCache: UniqueIdsGenerator<AccessibilityNodeInfo> = UniqueIdsGenerator()
-        var currentDepth = 0
         val nodesDeferred = mutableListOf<Deferred<String>>()
         val seenNodes: HashSet<AccessibilityNodeInfo> = HashSet()
         seenNodes.add(root)
         val nodesList = mutableListOf<String>()
 
         runBlocking {
-            while (!traversalQueue.isEmpty()) {
+            var currentDepth = 0
+            while (traversalQueue.isNotEmpty()) {
                 for (nodesAtCurrentDepth in traversalQueue.size downTo 1) {
                     val nodePair: ParentChildNodePair = traversalQueue.removeFirst()
                     for (i in 0 until nodePair.child.childCount) {
@@ -148,65 +186,7 @@ class AccessibilityTreeCreator() {
             nodesList.addAll(nodesDeferred.awaitAll())
         }
 
-        return StringBuilder().apply {
-            for (node in nodesList) {
-                append("    nodes {\n")
-                append(node)
-                append("    }\n")
-            }
-        }.toString()
-    }
-
-    private suspend fun processNodesInWindowDepthFirst(
-        root: AccessibilityNodeInfo,
-        sources: ConcurrentHashMap<String, AccessibilityNodeInfo>,
-    ): String {
-        val uniqueIdsCache: UniqueIdsGenerator<AccessibilityNodeInfo> = UniqueIdsGenerator()
-        val seenNodes: HashSet<AccessibilityNodeInfo> = HashSet()
-        val nodesList = mutableListOf<String>()
-
-        suspend fun processNodeDfs(
-            nodePair: ParentChildNodePair,
-            depth: Int
-        ) {
-            if (seenNodes.contains(nodePair.child)) {
-                return
-            }
-
-            seenNodes.add(nodePair.child)
-
-            // Process current node
-            val nodeString = processNode(nodePair, sources, uniqueIdsCache, depth)
-            nodesList.add(nodeString)
-
-            // Process all children recursively
-            for (i in 0 until nodePair.child.childCount) {
-                val childNode: AccessibilityNodeInfo? = nodePair.child.getChild(i)
-                if (childNode != null) {
-                    val childPair = ParentChildNodePair.builder()
-                        .child(childNode)
-                        .parent(nodePair.child)
-                        .build()
-                    processNodeDfs(childPair, depth + 1)
-                }
-            }
-        }
-
-        // Start processing from root
-        runBlocking {
-            val rootPair = ParentChildNodePair.builder()
-                .child(root)
-                .build()
-            processNodeDfs(rootPair, 0)
-        }
-
-        return StringBuilder().apply {
-            for (node in nodesList) {
-                append("    nodes {\n")
-                append(node)
-                append("    }\n")
-            }
-        }.toString()
+        return nodesList.joinToString(separator = "\n") { "    nodes {\n$it    }" }
     }
 
     private fun processNode(
@@ -222,7 +202,7 @@ class AccessibilityTreeCreator() {
             nodeDepth,
             getChildUniqueIds(node, uniqueIdsCache),
         )
-        sourceBuilder.put(nodeString, node)
+        sourceBuilder[nodeString] = node
         return nodeString
     }
 
@@ -267,7 +247,6 @@ class AccessibilityTreeCreator() {
             append("      tooltip_text: \"${escapeString(stringFromNullableCharSequence(node.tooltipText))}\"\n")
             append("      depth: $depth\n")
 
-            // Process actions
             node.actionList?.forEach { action ->
                 append("      actions {\n")
                 append("        id: ${action.id}\n")
@@ -275,7 +254,6 @@ class AccessibilityTreeCreator() {
                 append("      }\n")
             }
 
-            // Process child IDs
             childIds.forEach { childId ->
                 append("      child_ids: $childId\n")
             }
@@ -288,7 +266,7 @@ private fun getChildUniqueIds(
     uniqueIdsCache: UniqueIdsGenerator<AccessibilityNodeInfo>,
 ): List<Int> {
     val ids = mutableListOf<Int>()
-    for (childId in 0 until node.getChildCount()) {
+    for (childId in 0 until node.childCount) {
         val child: AccessibilityNodeInfo = node.getChild(childId) ?: continue
         ids.add(uniqueIdsCache.getUniqueId(child))
     }

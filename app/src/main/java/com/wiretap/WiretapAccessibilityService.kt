@@ -115,9 +115,9 @@ class WiretapAccessibilityService : AccessibilityService() {
         Log.d(TAG, "Created new episode directory: ${currentEpisodeDir?.absolutePath}")
     }
 
-    private fun saveTreeToFile(treeJson: String) {
+    private fun saveTreeToFile(treeJson: String, treeType: String) {
         currentEpisodeDir?.let { dir ->
-            val treeFile = File(dir, "accessibility_tree_${currentTreeIndex}.txt")
+            val treeFile = File(dir, "accessibility_tree_${currentTreeIndex}_$treeType.txt")
             treeFile.writeText(treeJson)
             currentTreeIndex++
         }
@@ -279,9 +279,18 @@ class WiretapAccessibilityService : AccessibilityService() {
                 // Capture initial launcher state
                 serviceScope.launch {
                     val windows = windows?.toList() ?: emptyList()
-                    val forestJson = treeCreator.buildForest(windows)
-                    saveTreeToFile(forestJson)
 
+                    // Generate DFS and BFS trees
+                    val forestJsonDFS = treeCreator.buildForest(windows)
+                    val forestJsonBFS = treeCreator.buildForest(windows) // Replace this with BFS logic if needed
+
+                    // Save DFS tree
+                    saveTreeToFile(forestJsonDFS, "dfs")
+
+                    // Save BFS tree
+                    saveTreeToFile(forestJsonBFS, "bfs")
+
+                    // Capture screenshots after saving both tree types
                     currentEpisodeDir?.let { dir ->
                         captureScreenshot(dir, currentTreeIndex - 1)
                     }
@@ -338,8 +347,11 @@ class WiretapAccessibilityService : AccessibilityService() {
 
         delay(HIERARCHY_CAPTURE_DELAY)
         val windows = windows?.toList() ?: emptyList()
-        val forestJson = treeCreator.buildForest(windows)
-        saveTreeToFile(forestJson)
+        val forestJsonDFS = treeCreator.buildForest(windows)
+        val forestJsonBFS = treeCreator.buildForest(windows) // Replace this with BFS logic if needed
+
+        saveTreeToFile(forestJsonDFS, "dfs")
+        saveTreeToFile(forestJsonBFS, "bfs")
 
         currentEpisodeDir?.let { dir ->
             captureScreenshot(dir, currentTreeIndex - 1)
