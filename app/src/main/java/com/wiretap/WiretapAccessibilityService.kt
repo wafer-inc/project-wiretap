@@ -26,11 +26,11 @@ class WiretapAccessibilityService : AccessibilityService() {
     private var textInputJob: Job? = null
     private val TEXT_INPUT_DELAY = 1000L
     private val TYPING_COOLDOWN = 2000L
-    private val GESTURE_DELAY = 500L
+    private val GESTURE_DELAY = 750L
     private var lastTypingTimestamp = 0L
     private var isTyping = false
 
-    private val HIERARCHY_CAPTURE_DELAY = 750L
+    private val HIERARCHY_CAPTURE_DELAY = 1000L
 
     private var previousPackage: CharSequence? = null
 
@@ -115,10 +115,13 @@ class WiretapAccessibilityService : AccessibilityService() {
         Log.d(TAG, "Created new episode directory: ${currentEpisodeDir?.absolutePath}")
     }
 
-    private fun saveTreeToFile(treeJson: String, treeType: String) {
+    private fun saveTreesToFile(dfsTree: String, bfsTree: String) {
         currentEpisodeDir?.let { dir ->
-            val treeFile = File(dir, "accessibility_tree_${currentTreeIndex}_$treeType.txt")
-            treeFile.writeText(treeJson)
+            val dfsTreeFile = File(dir, "accessibility_tree_${currentTreeIndex}_dfs.txt")
+            dfsTreeFile.writeText(dfsTree)
+
+            val bfsTreeFile = File(dir, "accessibility_tree_${currentTreeIndex}_bfs.txt")
+            bfsTreeFile.writeText(bfsTree)
             currentTreeIndex++
         }
     }
@@ -285,10 +288,7 @@ class WiretapAccessibilityService : AccessibilityService() {
                     val forestJsonBFS = treeCreator.buildForest(windows) // Replace this with BFS logic if needed
 
                     // Save DFS tree
-                    saveTreeToFile(forestJsonDFS, "dfs")
-
-                    // Save BFS tree
-                    saveTreeToFile(forestJsonBFS, "bfs")
+                    saveTreesToFile(forestJsonDFS, forestJsonBFS)
 
                     // Capture screenshots after saving both tree types
                     currentEpisodeDir?.let { dir ->
@@ -350,8 +350,7 @@ class WiretapAccessibilityService : AccessibilityService() {
         val forestJsonDFS = treeCreator.buildForest(windows)
         val forestJsonBFS = treeCreator.buildForest(windows) // Replace this with BFS logic if needed
 
-        saveTreeToFile(forestJsonDFS, "dfs")
-        saveTreeToFile(forestJsonBFS, "bfs")
+        saveTreesToFile(forestJsonDFS, forestJsonBFS)
 
         currentEpisodeDir?.let { dir ->
             captureScreenshot(dir, currentTreeIndex - 1)
