@@ -13,11 +13,10 @@ import kotlinx.coroutines.runBlocking
 /** Helper methods for creating the android accessibility info extra. */
 class AccessibilityTreeCreator() {
     private val TAG = "ProjectWiretap"
-
-    fun buildForest(windowInfos: List<AccessibilityWindowInfo>): String {
+    fun buildForest(windowInfos: List<AccessibilityWindowInfo>, treeType: String): String {
         val sourcesMap: ConcurrentHashMap<String, AccessibilityNodeInfo> =
             ConcurrentHashMap<String, AccessibilityNodeInfo>()
-        val windows: List<String> = processWindowsAndBlock(windowInfos, sourcesMap)
+        val windows: List<String> = processWindowsAndBlock(windowInfos, sourcesMap, treeType)
 
         return StringBuilder().apply {
             append(windows.joinToString("\n") { window ->
@@ -29,15 +28,17 @@ class AccessibilityTreeCreator() {
     private fun processWindowsAndBlock(
         windowInfos: List<AccessibilityWindowInfo>,
         sourcesMap: ConcurrentHashMap<String, AccessibilityNodeInfo>,
+        treeType: String
     ): List<String> {
         val windows: List<String>
-        runBlocking { windows = processWindows(windowInfos, sourcesMap) }
+        runBlocking { windows = processWindows(windowInfos, sourcesMap, treeType) }
         return windows
     }
 
     private suspend fun processWindows(
         windowInfos: List<AccessibilityWindowInfo>,
         sourcesMap: ConcurrentHashMap<String, AccessibilityNodeInfo>,
+        treeType: String
     ): List<String> {
         val windowInfoProtos = mutableListOf<String>()
         for (i in windowInfos.size - 1 downTo 0) {
@@ -46,7 +47,7 @@ class AccessibilityTreeCreator() {
             window.getBoundsInScreen(bounds)
 
             if (bounds.left == 0 && bounds.top == 0) {
-                val windowInfoProto = processWindow(window, sourcesMap)
+                val windowInfoProto = processWindow(window, sourcesMap, treeType)
                 windowInfoProto?.let { windowInfoProtos.add(windowInfoProto) }
             }
         }
@@ -56,6 +57,7 @@ class AccessibilityTreeCreator() {
     private fun processWindow(
         windowInfo: AccessibilityWindowInfo,
         sources: ConcurrentHashMap<String, AccessibilityNodeInfo>,
+        treeType: String
     ): String? {
         val bounds = Rect()
         windowInfo.getBoundsInScreen(bounds)
@@ -76,27 +78,22 @@ class AccessibilityTreeCreator() {
             append("  window_type: ${toWindowType(windowInfo.type)}\n")
 
             if (root != null) {
-                val dfsTreeDeferred: Deferred<String>
-                val bfsTreeDeferred: Deferred<String>
-
                 runBlocking {
-                    dfsTreeDeferred = async { processNodesInWindowDFS(root, sources) }
-                    bfsTreeDeferred = async { processNodesInWindowBFS(root, sources) }
+                    // Add if statement once we have the variable for this
+                    val tree = async {
+                        if (treeType == "dfs") {
+                            processNodesInWindowDFS(root, sources)
+                        } else {
+                            processNodesInWindowBFS(root, sources)
+                        }
+                    }
 
-                    append("  dfs_tree {\n")
-                    append(dfsTreeDeferred.await())
-                    append("  }\n")
-
-                    append("  bfs_tree {\n")
-                    append(bfsTreeDeferred.await())
+                    append("  tree {\n")
+                    append(tree.await())
                     append("  }\n")
                 }
             } else {
-                append("  dfs_tree {\n")
-                append("    nodes {}\n")
-                append("  }\n")
-
-                append("  bfs_tree {\n")
+                append("  tree {\n")
                 append("    nodes {}\n")
                 append("  }\n")
             }

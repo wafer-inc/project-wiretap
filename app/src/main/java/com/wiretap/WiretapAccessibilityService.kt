@@ -284,8 +284,8 @@ class WiretapAccessibilityService : AccessibilityService() {
                     val windows = windows?.toList() ?: emptyList()
 
                     // Generate DFS and BFS trees
-                    val forestJsonDFS = treeCreator.buildForest(windows)
-                    val forestJsonBFS = treeCreator.buildForest(windows) // Replace this with BFS logic if needed
+                    val forestJsonDFS = treeCreator.buildForest(windows, "dfs")
+                    val forestJsonBFS = treeCreator.buildForest(windows, "bfs") // Replace this with BFS logic if needed
 
                     // Save DFS tree
                     saveTreesToFile(forestJsonDFS, forestJsonBFS)
@@ -347,8 +347,8 @@ class WiretapAccessibilityService : AccessibilityService() {
 
         delay(HIERARCHY_CAPTURE_DELAY)
         val windows = windows?.toList() ?: emptyList()
-        val forestJsonDFS = treeCreator.buildForest(windows)
-        val forestJsonBFS = treeCreator.buildForest(windows) // Replace this with BFS logic if needed
+        val forestJsonDFS = treeCreator.buildForest(windows, "dfs")
+        val forestJsonBFS = treeCreator.buildForest(windows, "bfs") // Replace this with BFS logic if needed
 
         saveTreesToFile(forestJsonDFS, forestJsonBFS)
 
