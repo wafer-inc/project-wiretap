@@ -1,36 +1,30 @@
 package com.wiretap
 
+import ScreenshotManager
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Bitmap
 import android.os.Build
 import android.util.Log
-import android.view.Display
 import android.view.accessibility.AccessibilityEvent
+import androidx.annotation.RequiresApi
 import kotlinx.coroutines.*
 import java.io.File
-import java.io.FileOutputStream
-
 class WiretapAccessibilityService : AccessibilityService() {
     private val TAG = "WiretapAccessibility"
 
-    private val treeCreator = AccessibilityTreeCreator()
-
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
+    private lateinit var screenshotManager: ScreenshotManager
 
-    // Add variables for text input debouncing
     private var textInputJob: Job? = null
     private val TEXT_INPUT_DELAY = 1000L
     private val TYPING_COOLDOWN = 2000L
     private val GESTURE_DELAY = 750L
     private var lastTypingTimestamp = 0L
     private var isTyping = false
-
-    private val HIERARCHY_CAPTURE_DELAY = 1000L
 
     private var previousPackage: CharSequence? = null
 
@@ -43,8 +37,7 @@ class WiretapAccessibilityService : AccessibilityService() {
 
     private var lastActionTimestamp: Long = 0L
 
-    private val screenshotWidths = mutableListOf<Int>()
-    private val screenshotHeights = mutableListOf<Int>()
+    private var episodeNumber = 0
 
     private sealed class Action {
         data class TextInput(val text: String) : Action()
@@ -98,37 +91,35 @@ class WiretapAccessibilityService : AccessibilityService() {
         return packageName?.contains("launcher", ignoreCase = true) == true
     }
 
+    @RequiresApi(Build.VERSION_CODES.R)
     private fun initializeNewEpisode() {
-        // Clear any existing screenshot dimensions
-        screenshotWidths.clear()
-        screenshotHeights.clear()
+        isRecording = true
+        hasReachedLauncher = true
+        launcherVisitCount = 1
 
-        // Rest of initialization code...
         val datasetDir = File(getExternalFilesDir(null), "wiretap_dataset")
         if (!datasetDir.exists()) {
             datasetDir.mkdirs()
         }
-        val episodeNumber = datasetDir.listFiles()?.size ?: 0
+        episodeNumber = datasetDir.listFiles()?.size ?: 0
         currentEpisodeDir = File(datasetDir, "episode_$episodeNumber")
         currentEpisodeDir?.mkdirs()
         currentTreeIndex = 0
+
+        screenshotManager.startPeriodicCapture()
+
         Log.d(TAG, "Created new episode directory: ${currentEpisodeDir?.absolutePath}")
-    }
 
-    private fun saveTreesToFile(dfsTree: String, bfsTree: String) {
-        currentEpisodeDir?.let { dir ->
-            val dfsTreeFile = File(dir, "accessibility_tree_${currentTreeIndex}_dfs.txt")
-            dfsTreeFile.writeText(dfsTree)
+        screenshotManager.saveCurrentScreenshotAndTrees(File(currentEpisodeDir?.absolutePath), currentTreeIndex)
 
-            val bfsTreeFile = File(dir, "accessibility_tree_${currentTreeIndex}_bfs.txt")
-            bfsTreeFile.writeText(bfsTree)
-            currentTreeIndex++
-        }
+        currentTreeIndex++
+
+        lastActionTimestamp = System.currentTimeMillis()
+
+        Log.d(TAG, "Reached launcher, captured initial state and started recording")
     }
 
     private fun saveMetadata() {
-        val datasetDir = File(getExternalFilesDir(null), "wiretap_dataset")
-        val episodeNumber = datasetDir.listFiles()?.size ?: 0
         currentEpisodeDir?.let { dir ->
             val actionsJson = recordingActions.joinToString(",\n")
 
@@ -136,12 +127,6 @@ class WiretapAccessibilityService : AccessibilityService() {
 {
   "episode_id": ${episodeNumber},
   "goal": ${currentGoal?.let { "\"$it\"" } ?: "null"},
-  "screenshot_widths": [
-    ${screenshotWidths.joinToString(",\n    ")}
-  ],
-  "screenshot_heights": [
-    ${screenshotHeights.joinToString(",\n    ")}
-  ],
   "actions": [
     $actionsJson
   ]
@@ -151,43 +136,9 @@ class WiretapAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun captureScreenshot(episodeDir: File, index: Int) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            takeScreenshot(
-                Display.DEFAULT_DISPLAY,
-                applicationContext.mainExecutor,
-                object : TakeScreenshotCallback {
-                    override fun onSuccess(screenshot: ScreenshotResult) {
-                        val bitmap = Bitmap.wrapHardwareBuffer(
-                            screenshot.hardwareBuffer,
-                            screenshot.colorSpace
-                        )
-
-                        try {
-                            bitmap?.let {
-                                screenshotWidths.add(it.width)
-                                screenshotHeights.add(it.height)
-                            }
-
-                            val screenshotFile = File(episodeDir, "screenshot_$index.png")
-                            FileOutputStream(screenshotFile).use { out ->
-                                bitmap?.compress(Bitmap.CompressFormat.PNG, 100, out)
-                            }
-                            Log.d(TAG, "Screenshot saved: ${screenshotFile.absolutePath}")
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error saving screenshot", e)
-                        } finally {
-                            bitmap?.recycle()
-                            screenshot.hardwareBuffer.close()
-                        }
-                    }
-
-                    override fun onFailure(errorCode: Int) {
-                        Log.e(TAG, "Screenshot failed with error code: $errorCode")
-                    }
-                }
-            )
-        }
+    override fun onCreate() {
+        super.onCreate()
+        screenshotManager = ScreenshotManager(this, serviceScope)
     }
 
     override fun onServiceConnected() {
@@ -263,9 +214,6 @@ class WiretapAccessibilityService : AccessibilityService() {
         currentGoal = null
         recordingActions.clear()
         currentTreeIndex = 0
-        // Clear screenshot dimensions
-        screenshotWidths.clear()
-        screenshotHeights.clear()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
@@ -274,29 +222,7 @@ class WiretapAccessibilityService : AccessibilityService() {
 
             if (isStartRequested && !isRecording && isLauncher(packageName)) {
                 // First launcher visit - start recording
-                isRecording = true
-                hasReachedLauncher = true
-                launcherVisitCount = 1
                 initializeNewEpisode()
-
-                // Capture initial launcher state
-                serviceScope.launch {
-                    val windows = windows?.toList() ?: emptyList()
-
-                    // Generate DFS and BFS trees
-                    val forestJsonDFS = treeCreator.buildForest(windows, "dfs")
-                    val forestJsonBFS = treeCreator.buildForest(windows, "bfs") // Replace this with BFS logic if needed
-
-                    // Save DFS tree
-                    saveTreesToFile(forestJsonDFS, forestJsonBFS)
-
-                    // Capture screenshots after saving both tree types
-                    currentEpisodeDir?.let { dir ->
-                        captureScreenshot(dir, currentTreeIndex - 1)
-                    }
-                }
-
-                Log.d(TAG, "Reached launcher, captured initial state and started recording")
                 return
             } else if (isRecording && isLauncher(packageName)) {
                 // Second launcher visit - stop recording
@@ -345,18 +271,9 @@ class WiretapAccessibilityService : AccessibilityService() {
         val actionJson = action.toJson()
         recordingActions.add(actionJson)
 
-        delay(HIERARCHY_CAPTURE_DELAY)
-        val windows = windows?.toList() ?: emptyList()
-        val forestJsonDFS = treeCreator.buildForest(windows, "dfs")
-        val forestJsonBFS = treeCreator.buildForest(windows, "bfs") // Replace this with BFS logic if needed
-
-        saveTreesToFile(forestJsonDFS, forestJsonBFS)
-
-        currentEpisodeDir?.let { dir ->
-            captureScreenshot(dir, currentTreeIndex - 1)
-        }
-
+        screenshotManager.saveCurrentScreenshotAndTrees(File(currentEpisodeDir?.absolutePath), currentTreeIndex)
         lastActionTimestamp = System.currentTimeMillis()
+        currentTreeIndex++
     }
 
     private fun handleAccessibilityAction(action: Action) {
@@ -443,6 +360,7 @@ class WiretapAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        screenshotManager.stopPeriodicCapture()
         try {
             unregisterReceiver(gestureReceiver)
         } catch (e: Exception) {
