@@ -116,8 +116,8 @@ class ScreenshotManager(
                 }
 
                 // Save trees
-                File(episodeDir, "accessibility_tree_${index}_dfs.json").writeText(trees.first)
-                File(episodeDir, "accessibility_tree${index}_bfs.json").writeText(trees.second)
+                File(episodeDir, "accessibility_tree_${index}_dfs.txt").writeText(trees.first)
+                File(episodeDir, "accessibility_tree_${index}_bfs.txt").writeText(trees.second)
 
                 // Save screenshot
                 bitmap = Bitmap.wrapHardwareBuffer(buffer, colorSpace)
