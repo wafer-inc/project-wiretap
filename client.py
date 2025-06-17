@@ -112,8 +112,8 @@ class GestureDetector:
     def scale_coordinate(self, x: int, y: int) -> Tuple[int, int]:
         """Scale coordinates to actual screen dimensions."""
         # Scale to 1080x2640
-        scaled_x = int(x * 1080 / 4095)  # Assuming max input of 4095
-        scaled_y = int(y * 2640 / 4095)
+        scaled_x = int(x * 1008 / 4095)  # Assuming max input of 4095
+        scaled_y = int(y * 2240 / 4095)
         return scaled_x, scaled_y
 
     def process_event(self, event: EventData):
